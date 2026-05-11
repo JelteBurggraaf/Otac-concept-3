@@ -2557,8 +2557,27 @@ function updateQrLeds(deg) {
 
 let currentSessionId = null;
 let qrHideTimeout    = null;
+let _startPollId     = null;
+let _startPollUrl    = null;
+
+function _startNamePoll(pollUrl) {
+  _startPollUrl = pollUrl;
+  if (_startPollId) clearInterval(_startPollId);
+  _startPollId = setInterval(async () => {
+    if (!qrActive) { clearInterval(_startPollId); _startPollId = null; return; }
+    try {
+      const data = await fetch(_startPollUrl).then(r => r.json());
+      if (data.started) {
+        clearInterval(_startPollId); _startPollId = null;
+        if (data.name) document.getElementById('qr-sub').textContent = `Welkom, ${data.name}! Even geduld…`;
+        setTimeout(startGame, 600);
+      }
+    } catch (_) {}
+  }, 2000);
+}
 
 async function startGame() {
+  if (_startPollId) { clearInterval(_startPollId); _startPollId = null; }
   qrActive = false;
   const overlay = document.getElementById('qr-overlay');
   overlay.classList.add('hidden');
@@ -2587,6 +2606,12 @@ async function startGame() {
     currentSessionId = session.sessionId ?? null;
     document.getElementById('qr-image').src = session.qr;
     qrActive = true;
+
+    // Poll the Netlify relay so the webapp name entry auto-starts the game
+    if (session.url && session.token) {
+      const base = session.url.replace(/\/sessie\/.*$/, '');
+      _startNamePoll(`${base}/.netlify/functions/codes?action=poll-start&token=${session.token}`);
+    }
   } else {
     // Server unreachable — skip QR screen and start immediately
     document.getElementById('qr-overlay').style.display = 'none';
