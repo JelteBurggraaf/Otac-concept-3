@@ -225,7 +225,7 @@ app.get('/api/session/new', async (req, res) => {
   });
   const { c1, c2, c3, sessionId } = reserve();
   const token   = Buffer.from([c1, c2, c3].join(',')).toString('base64url');
-  const examUrl = (getSetting('exam_url', '') || 'https://otac-theorie.netlify.app').replace(/\/$/, '');
+  const examUrl = (getSetting('exam_url', '') || 'https://otac-guide.netlify.app').replace(/\/$/, '');
   const url     = examUrl + '/sessie/' + token;
   const qr      = await QRCode.toDataURL(url, { width: 300, margin: 2 });
   res.json({ token, c1, c2, c3, url, qr, sessionId });
