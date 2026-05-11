@@ -603,6 +603,97 @@
     background: var(--teal-hl);
     box-shadow: 0 0 6px var(--teal-hl), 0 0 14px rgba(74,138,170,0.4);
   }
+
+  /* ── Energy charging game (Module 1) ─────────────────────────────────────── */
+  #energy-screen {
+    display: none; position: absolute; inset: 0;
+    flex-direction: column; align-items: center; justify-content: center;
+    gap: 24px; padding: 40px; background: var(--bg);
+  }
+  #energy-screen.active { display: flex; }
+
+  #battery-outer { display: flex; flex-direction: column; align-items: center; }
+  #battery-nub {
+    width: 44px; height: 12px;
+    background: var(--border2); border-radius: 4px 4px 0 0;
+    border: 2px solid var(--border2); border-bottom: none;
+  }
+  #battery-body {
+    position: relative; width: 130px; height: 240px;
+    border: 3px solid var(--border2); border-radius: 0 0 6px 6px;
+    overflow: hidden; background: #04080a;
+  }
+  #battery-fill {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 0%; background: var(--teal-hl);
+  }
+  #battery-body::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 2;
+    background: repeating-linear-gradient(
+      to top,
+      transparent, transparent calc(20% - 1px),
+      rgba(4,8,10,0.7) calc(20% - 1px), rgba(4,8,10,0.7) 20%
+    );
+  }
+  #battery-pct {
+    position: absolute; inset: 0; display: flex;
+    align-items: center; justify-content: center; z-index: 3;
+    font-size: 26px; letter-spacing: 2px; color: var(--text);
+    text-shadow: 0 0 10px rgba(0,0,0,0.95);
+  }
+  #battery-target-line {
+    position: absolute; left: -4px; right: -4px; height: 2px;
+    background: var(--accent); box-shadow: 0 0 6px var(--accent);
+    z-index: 4; pointer-events: none;
+  }
+
+  #heat-section {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+    width: 260px;
+  }
+  #heat-label {
+    font-size: 9px; letter-spacing: 3px; text-transform: uppercase; color: var(--dim);
+  }
+  #heat-track {
+    width: 100%; height: 10px;
+    background: #04080a; border: 1px solid var(--border2); border-radius: 2px;
+    overflow: hidden;
+  }
+  #heat-fill { height: 100%; width: 0%; background: var(--teal-hl); border-radius: 2px; }
+  #heat-warning {
+    font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+    min-height: 14px; color: var(--accent);
+  }
+
+  #energy-status {
+    font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--dim); min-height: 14px; text-align: center;
+  }
+  #energy-code {
+    display: none;
+    font-size: 42px; letter-spacing: 8px; color: var(--accent);
+    text-shadow: 0 0 20px rgba(224,203,106,0.45);
+  }
+  #energy-prompt {
+    display: none;
+    font-size: 9px; letter-spacing: 2px; color: var(--dim); text-align: center;
+    max-width: 340px; line-height: 1.6;
+  }
+
+  #overheat-overlay {
+    display: none; position: absolute; inset: 0; z-index: 50;
+    flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    animation: overheatFlash 0.4s steps(1) infinite;
+  }
+  @keyframes overheatFlash {
+    0%,49%   { background: rgba(224,85,85,0.10); }
+    50%,100% { background: rgba(224,85,85,0.22); }
+  }
+  #overheat-text {
+    font-size: 28px; letter-spacing: 8px; text-transform: uppercase; color: var(--red);
+    text-shadow: 0 0 24px var(--red);
+  }
+  #overheat-sub { font-size: 11px; letter-spacing: 3px; color: rgba(224,85,85,0.65); }
 </style>
 </head>
 <body>
@@ -642,6 +733,30 @@
         <div id="mc-grid"></div>
         <div id="progress-text"></div>
       </div>
+      <!-- Energy charging game screen (Module 1 new concept) -->
+      <div id="energy-screen">
+        <div id="battery-outer">
+          <div id="battery-nub"></div>
+          <div id="battery-body">
+            <div id="battery-fill"></div>
+            <div id="battery-pct">0%</div>
+            <div id="battery-target-line"></div>
+          </div>
+        </div>
+        <div id="heat-section">
+          <div id="heat-label">Warmte</div>
+          <div id="heat-track"><div id="heat-fill"></div></div>
+          <div id="heat-warning"></div>
+        </div>
+        <div id="energy-status"></div>
+        <div id="energy-code"></div>
+        <div id="energy-prompt">Voer deze code in via de QR-app · Daarna de sleutel omdraaien voor de volgende deelnemer</div>
+        <div id="overheat-overlay">
+          <div id="overheat-text">OVERVERHIT</div>
+          <div id="overheat-sub">Wacht even — dan opnieuw</div>
+        </div>
+      </div>
+
       <div id="result-screen">
         <div id="result-title"></div>
         <div id="result-body"></div>
@@ -835,6 +950,32 @@ let   DEG_PER_OPTION    = 90;     // encoder degrees to advance one MC option (r
 const QUESTION_TIMER_MS = 5000;   // ms per question before auto-selecting current option
 const DEG_PER_STEP  = 0.5;          // encoder steps → degrees for quiz option selection
 let   videoStepScale = 0.5;          // encoder steps → video scrub speed; set from admin dial_sensitivity setting
+
+// ─── Energy game state ────────────────────────────────────────────────────────
+
+let energyGameActive    = false;
+let energyLevel         = 0;      // 0–100
+let heatLevel           = 0;      // 0–100
+let overheated          = false;
+let overheatEndTime     = 0;
+let lastEnergyEncoderAt = 0;
+let currentSpeed        = 0;      // estimated steps/sec
+let gameWon             = false;
+
+let energyTarget  = 80;   // % battery needed to win (loaded from settings)
+let heatThreshold = 80;   // % heat at which overheat triggers
+
+const ENERGY_DRAIN_RATE = 4;     // %/sec when idle
+const HEAT_DRAIN_RATE   = 12;    // %/sec when idle
+const ENERGY_PER_STEP   = 0.025; // % per encoder step
+const HEAT_SPEED_NORM   = 1000;  // steps/sec reference for heat curve
+const HEAT_SCALE        = 25;    // %/sec of heat at HEAT_SPEED_NORM
+const OVERHEAT_MS       = 3000;
+const SPEED_ALPHA       = 0.2;
+const IDLE_ENERGY_MS    = 250;
+
+let _energyRafId = null;
+let _energyLastT = 0;
 
 // ─── Persistent session state ─────────────────────────────────────────────────
 
@@ -1069,6 +1210,10 @@ function applyEncoderInput(steps) {
     qrDeg = Math.min(QR_DEG_REQUIRED, qrDeg + Math.abs(deg));
     updateQrLeds(qrDeg);
     if (qrDeg >= QR_DEG_REQUIRED) startGame();
+    return;
+  }
+  if (energyGameActive) {
+    onEnergyEncoder(steps);
     return;
   }
   if (mode === 'input' && !knobLocked) {
@@ -1597,6 +1742,153 @@ function showSuccess() {
       el.style.display = 'block';
       document.getElementById('module1-prompt').style.display = 'block';
     }).catch(() => {});
+}
+
+// ─── Energy game ─────────────────────────────────────────────────────────────
+
+function startEnergyGame() {
+  energyGameActive    = true;
+  energyLevel         = 0;
+  heatLevel           = 0;
+  overheated          = false;
+  gameWon             = false;
+  currentSpeed        = 0;
+  lastEnergyEncoderAt = 0;
+  _energyLastT        = performance.now();
+
+  hideAllScreens();
+  const $es = document.getElementById('energy-screen');
+  $es.style.display = 'flex';
+  document.getElementById('overheat-overlay').style.display = 'none';
+  document.getElementById('energy-code').style.display      = 'none';
+  document.getElementById('energy-prompt').style.display    = 'none';
+  document.getElementById('battery-fill').style.background  = 'var(--teal-hl)';
+  document.getElementById('battery-pct').textContent        = '0%';
+  document.getElementById('heat-fill').style.width          = '0%';
+  document.getElementById('heat-warning').textContent       = '';
+  document.getElementById('energy-status').textContent      = 'Draai de knop om energie op te laden…';
+  document.getElementById('battery-target-line').style.bottom = energyTarget + '%';
+  idleLeds();
+
+  if (_energyRafId) cancelAnimationFrame(_energyRafId);
+  _energyRafId = requestAnimationFrame(_energyLoop);
+}
+
+function _energyLoop(now) {
+  if (!energyGameActive) return;
+  const dt   = Math.min(0.1, (now - _energyLastT) / 1000);
+  _energyLastT = now;
+  const idle = lastEnergyEncoderAt === 0 || (now - lastEnergyEncoderAt) > IDLE_ENERGY_MS;
+
+  if (overheated) {
+    heatLevel   = Math.max(0, heatLevel   - HEAT_DRAIN_RATE * 2.5 * dt);
+    energyLevel = Math.max(0, energyLevel - ENERGY_DRAIN_RATE * 1.5 * dt);
+    currentSpeed = 0;
+    if (now >= overheatEndTime && heatLevel < heatThreshold * 0.3) {
+      overheated = false;
+      document.getElementById('overheat-overlay').style.display = 'none';
+      document.getElementById('energy-status').textContent = 'Draai de knop om energie op te laden…';
+      idleLeds();
+    }
+  } else if (idle) {
+    heatLevel   = Math.max(0, heatLevel   - HEAT_DRAIN_RATE   * dt);
+    energyLevel = Math.max(0, energyLevel - ENERGY_DRAIN_RATE * dt);
+    currentSpeed = Math.max(0, currentSpeed - currentSpeed * 5 * dt);
+  } else {
+    const heatRate = Math.pow(Math.max(0, currentSpeed) / HEAT_SPEED_NORM, 2) * HEAT_SCALE;
+    heatLevel = Math.max(0, Math.min(100, heatLevel + (heatRate - HEAT_DRAIN_RATE) * dt));
+    if (heatLevel >= heatThreshold) _triggerOverheat(now);
+  }
+
+  _renderEnergyUI(now);
+  _energyRafId = requestAnimationFrame(_energyLoop);
+}
+
+function onEnergyEncoder(steps) {
+  if (!energyGameActive || overheated || gameWon) return;
+  const now = performance.now();
+  if (lastEnergyEncoderAt > 0) {
+    const dt = Math.min(500, now - lastEnergyEncoderAt);
+    if (dt > 0) {
+      const instant = Math.abs(steps) / dt * 1000;
+      currentSpeed  = currentSpeed * (1 - SPEED_ALPHA) + instant * SPEED_ALPHA;
+    }
+  }
+  lastEnergyEncoderAt = now;
+  energyLevel = Math.min(100, energyLevel + Math.abs(steps) * ENERGY_PER_STEP);
+  if (energyLevel >= energyTarget) _triggerEnergyWin();
+}
+
+function _triggerOverheat(now) {
+  overheated      = true;
+  overheatEndTime = now + OVERHEAT_MS;
+  currentSpeed    = 0;
+  document.getElementById('overheat-overlay').style.display = 'flex';
+  document.getElementById('energy-status').textContent      = 'OVERVERHIT — wacht even…';
+  for (let i = 0; i < LED_COUNT; i++) setLedClass(i, 'flash');
+}
+
+async function _triggerEnergyWin() {
+  if (gameWon) return;
+  gameWon          = true;
+  energyGameActive = false;
+  cancelAnimationFrame(_energyRafId);
+
+  document.getElementById('battery-fill').style.height     = '100%';
+  document.getElementById('battery-fill').style.background = 'var(--green)';
+  document.getElementById('battery-pct').textContent       = '100%';
+  document.getElementById('energy-status').textContent     = 'OPGESTART — systeem actief';
+  for (let i = 0; i < LED_COUNT; i++) setLedClass(i, 'done');
+
+  let code = '0000';
+  try {
+    const res = await fetch('/api/modules/1/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: currentSessionId }),
+    });
+    code = (await res.json()).code;
+  } catch (_) {}
+
+  document.getElementById('energy-code').textContent     = '#' + code;
+  document.getElementById('energy-code').style.display   = 'block';
+  document.getElementById('energy-prompt').style.display = 'block';
+}
+
+function _renderEnergyUI(now) {
+  const fillEl = document.getElementById('battery-fill');
+  fillEl.style.height = energyLevel + '%';
+  if (!gameWon) {
+    if      (energyLevel >= energyTarget * 0.95) fillEl.style.background = 'var(--green)';
+    else if (energyLevel >= energyTarget * 0.65) fillEl.style.background = '#5aaa6a';
+    else                                         fillEl.style.background = 'var(--teal-hl)';
+  }
+  document.getElementById('battery-pct').textContent = Math.round(energyLevel) + '%';
+
+  const heatFill = document.getElementById('heat-fill');
+  heatFill.style.width = heatLevel + '%';
+  const hf = heatLevel / 100;
+  if      (hf > 0.75) heatFill.style.background = 'var(--red)';
+  else if (hf > 0.45) heatFill.style.background = 'var(--accent)';
+  else                heatFill.style.background = 'var(--teal-hl)';
+
+  const warn  = document.getElementById('heat-warning');
+  const ratio = heatLevel / heatThreshold;
+  if (!overheated) {
+    if      (ratio >= 0.85) { warn.textContent = '⚠ KRITIEK'; warn.style.color = 'var(--red)'; }
+    else if (ratio >= 0.60) { warn.textContent = 'Temp stijgt…'; warn.style.color = 'var(--accent)'; }
+    else                    { warn.textContent = ''; }
+  }
+
+  if (!overheated && !gameWon) {
+    const lit = Math.round((energyLevel / 100) * LED_COUNT);
+    for (let i = 0; i < LED_COUNT; i++) setLedClass(i, i < lit ? 'on' : '');
+  }
+
+  if (overheated) {
+    const rem = Math.max(0, Math.ceil((overheatEndTime - now) / 1000));
+    document.getElementById('overheat-sub').textContent = `Wacht even — ${rem}s`;
+  }
 }
 
 // ─── Progress reporting ──────────────────────────────────────────────────────
@@ -2278,13 +2570,13 @@ async function startGame() {
       body: JSON.stringify({ id: currentSessionId })
     }).catch(() => {});
   }
-  await Promise.all([fetchRound(), loadActiveVideo()]);
-  remainingTrainable = TRAINABLE.map(s => ({...s}));
-  openPumpGame();
-  biasConfig = await fetch('/api/bias/config').then(r => r.json());
-  biasSensorMin = Number(biasConfig.sensor_min ?? 0);
-  biasSensorMax = Number(biasConfig.sensor_max ?? 1023);
-  startBiasIdleLoop();
+  // Load energy game settings
+  try {
+    const s = await fetch('/api/settings').then(r => r.json());
+    energyTarget  = parseFloat(s.energy_target  || 80);
+    heatThreshold = parseFloat(s.heat_threshold || 80);
+  } catch (_) {}
+  startEnergyGame();
 }
 
 (async () => {

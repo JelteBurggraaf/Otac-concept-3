@@ -692,71 +692,29 @@
   </div>
 </div>
 
-<!-- Quiz vragen -->
+<!-- Module 1 — Energie opladen -->
 <div class="collapsible-section">
-  <div class="section-header" onclick="toggleSection('quiz')">
-    <span class="section-chevron" id="chevron-quiz">▶</span>
-    <h2>Quiz vragen</h2>
+  <div class="section-header" onclick="toggleSection('energy')">
+    <span class="section-chevron" id="chevron-energy">▶</span>
+    <h2>Module 1 — Energie opladen</h2>
   </div>
-  <div class="section-body" id="body-quiz">
-    <!-- Quiz dial speed -->
+  <div class="section-body" id="body-energy">
     <div class="sensitivity-row" style="padding:16px 20px 0">
-      <label>Draaiknop snelheid (woordkeuze)</label>
-      <input type="range" class="dial-slider" id="quiz-sensitivity-slider"
-             min="10" max="1080" step="10" value="360"
-             oninput="updateQuizSensitivity(this.value)">
-      <span class="sensitivity-val" id="quiz-sensitivity-val">360°</span>
+      <label>Doelpercentage energie (hoeveel % om te winnen)</label>
+      <input type="range" class="dial-slider" id="energy-target-slider"
+             min="40" max="95" step="5" value="80"
+             oninput="updateEnergyTarget(this.value)">
+      <span class="sensitivity-val" id="energy-target-val">80%</span>
     </div>
-
-    <div class="layout">
-
-      <!-- Sentence list -->
-      <div>
-        <div class="list-header">
-          <div class="filter-bar">
-            <button class="active" onclick="setFilter('all',this)">Alle</button>
-            <button onclick="setFilter('trainable',this)">Zinvol</button>
-            <button onclick="setFilter('nonsense',this)">Onzin</button>
-          </div>
-          <span class="list-meta" id="list-meta"></span>
-        </div>
-        <div class="sel-toolbar" id="sel-toolbar">
-          <span id="sel-count"></span>
-          <button class="btn-sel-all" onclick="toggleSelectAll()">Alles selecteren</button>
-          <button class="btn-bulk-delete" onclick="deleteSelected()">Verwijder geselecteerd</button>
-        </div>
-        <div class="cards" id="cards"></div>
-      </div>
-
-      <!-- Add / Edit form -->
-      <div class="form-panel">
-        <h2 id="form-title">Zin toevoegen</h2>
-        <div>
-          <label>Type</label>
-          <div class="type-toggle">
-            <button id="btn-trainable" class="active" onclick="setType('trainable')">Zinvol</button>
-            <button id="btn-nonsense"              onclick="setType('nonsense')">Onzin</button>
-          </div>
-        </div>
-        <div>
-          <label>Zin (gebruik ___ voor het lege vak)</label>
-          <textarea id="inp-text" placeholder="De zon gaat onder in het ___"></textarea>
-        </div>
-        <div>
-          <label>Antwoordopties</label>
-          <p class="nonsense-note" id="nonsense-note">Bij onzin zijn alle opties automatisch correct.</p>
-          <div class="options-grid" id="opts-grid">
-            <div class="opt-row"><input type="radio" name="correct" value="0" checked><input type="text" class="opt-inp" placeholder="Optie 1"></div>
-            <div class="opt-row"><input type="radio" name="correct" value="1"><input type="text" class="opt-inp" placeholder="Optie 2"></div>
-            <div class="opt-row"><input type="radio" name="correct" value="2"><input type="text" class="opt-inp" placeholder="Optie 3"></div>
-            <div class="opt-row"><input type="radio" name="correct" value="3"><input type="text" class="opt-inp" placeholder="Optie 4"></div>
-          </div>
-        </div>
-        <button class="btn-submit" id="btn-submit" onclick="submitSentence()">Toevoegen</button>
-        <button class="btn-cancel" id="btn-cancel" onclick="cancelEdit()">Annuleren</button>
-        <div class="feedback" id="feedback"></div>
-      </div>
-
+    <div class="sensitivity-row" style="padding:12px 20px 20px">
+      <label>Oververhitting drempelwaarde (% warmte voor blokkade)</label>
+      <input type="range" class="dial-slider" id="heat-threshold-slider"
+             min="40" max="100" step="5" value="80"
+             oninput="updateHeatThreshold(this.value)">
+      <span class="sensitivity-val" id="heat-threshold-val">80%</span>
+    </div>
+    <div style="padding:0 20px 20px">
+      <div class="feedback" id="energy-feedback"></div>
     </div>
   </div>
 </div>
@@ -1040,25 +998,33 @@ async function updateExamUrl(val) {
   });
 }
 
-// ── Quiz dial sensitivity ─────────────────────────────────────────────────────
-const QUIZ_SLIDER_MIN = 10, QUIZ_SLIDER_MAX = 1080;
-
-async function loadQuizSensitivity() {
+// ── Module 1: Energy settings ─────────────────────────────────────────────────
+async function loadEnergySettings() {
   const settings = await fetch('/api/settings').then(r => r.json()).catch(() => ({}));
-  const stored = parseInt(settings.quiz_sensitivity || '360');
-  const sliderVal = QUIZ_SLIDER_MIN + QUIZ_SLIDER_MAX - stored; // invert: right = faster
-  document.getElementById('quiz-sensitivity-slider').value = sliderVal;
-  document.getElementById('quiz-sensitivity-val').textContent = stored + '°';
+  const target = parseFloat(settings.energy_target  || 80);
+  const heat   = parseFloat(settings.heat_threshold || 80);
+  document.getElementById('energy-target-slider').value    = target;
+  document.getElementById('energy-target-val').textContent = target + '%';
+  document.getElementById('heat-threshold-slider').value    = heat;
+  document.getElementById('heat-threshold-val').textContent = heat + '%';
 }
 
-async function updateQuizSensitivity(sliderVal) {
-  const stored = QUIZ_SLIDER_MIN + QUIZ_SLIDER_MAX - parseInt(sliderVal); // invert
-  document.getElementById('quiz-sensitivity-val').textContent = stored + '°';
-  await fetch('/api/settings/quiz_sensitivity', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ value: stored }),
+async function updateEnergyTarget(val) {
+  document.getElementById('energy-target-val').textContent = Math.round(val) + '%';
+  await fetch('/api/settings/energy_target', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: val }),
   });
+  showFeedback('energy-feedback', 'Opgeslagen.', true);
+}
+
+async function updateHeatThreshold(val) {
+  document.getElementById('heat-threshold-val').textContent = Math.round(val) + '%';
+  await fetch('/api/settings/heat_threshold', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: val }),
+  });
+  showFeedback('energy-feedback', 'Opgeslagen.', true);
 }
 
 // ── Video ─────────────────────────────────────────────────────────────────────
@@ -1775,10 +1741,9 @@ async function uploadDigitAudio(input, digit) {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-loadSentences();
 loadExamUrl();
 loadDialSensitivity();
-loadQuizSensitivity();
+loadEnergySettings();
 loadVideos();
 loadAudio().then(() => { loadBiasConfig(); setupAudioSelectListeners(); });
 loadBiasStories();
