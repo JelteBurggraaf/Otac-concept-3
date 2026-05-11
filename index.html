@@ -1,0 +1,2306 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OLTC-v1 — Opleiding tot AI-chatbot</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #060d0e;
+    --panel:     #0d1416;
+    --metal:     #1a2224;
+    --border:    #1f2e30;
+    --border2:   #2a3e41;
+    --teal-dark: #00323B;
+    --teal-mid:  #164A5B;
+    --teal-hl:   #4a8aaa;
+    --accent:    #e0cb6a;
+    --led-on:    #FFC681;
+    --led-full:  #FFFABE;
+    --text:      #cdd8d9;
+    --dim:       #4a6166;
+    --green:     #3ec96a;
+    --red:       #e05555;
+    --font:      'Courier New', Courier, monospace;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 5vh 5vw;
+    user-select: none;
+  }
+
+  #machine {
+    /* width is capped so the 16:9 screen + ~200px chrome overhead fits in 90vh */
+    width: min(90vw, calc((90vh - 200px) * 16 / 9 + 64px));
+    max-width: 1800px;
+    background: var(--panel);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    box-shadow:
+      0 0 80px rgba(0,50,59,0.35),
+      0 0 0 1px rgba(255,198,129,0.04),
+      inset 0 1px 0 rgba(255,255,255,0.03);
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  /* ── Header ─────────────────────────────────── */
+  #header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 18px;
+    gap: 20px;
+  }
+  #title {
+    font-size: 12px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--dim);
+    white-space: nowrap;
+  }
+  #model-id {
+    font-size: 12px;
+    color: var(--accent);
+    letter-spacing: 3px;
+    white-space: nowrap;
+  }
+
+  /* ── LED array ──────────────────────────────── */
+  #led-array {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex: 1;
+    justify-content: center;
+  }
+  .led {
+    width: 15px; height: 15px;
+    border-radius: 50%;
+    background: #0d1a1c;
+    border: 1px solid var(--border2);
+    transition: background 0.12s, box-shadow 0.12s;
+    flex-shrink: 0;
+  }
+  .led.on   { background: var(--led-on);  box-shadow: 0 0 7px var(--led-on),  0 0 18px rgba(255,198,129,0.4); }
+  body:not(.test-mode) .led.on { background: var(--teal-hl); box-shadow: 0 0 7px var(--teal-hl), 0 0 18px rgba(74,138,170,0.4); }
+  .led.full { background: var(--led-full); box-shadow: 0 0 12px var(--led-full),0 0 26px rgba(255,250,190,0.7); }
+  .led.done { background: var(--green);   box-shadow: 0 0 7px var(--green),   0 0 14px rgba(62,201,106,0.35); }
+
+  /* ── Main layout ────────────────────────────── */
+  #main-area {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Screen area ────────────────────────────── */
+  #screen-area {
+    background: #000;
+    border: 2px solid #141e20;
+    border-radius: 5px;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+  }
+  #screen-area::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.07) 2px,rgba(0,0,0,0.07) 4px);
+    pointer-events: none; z-index: 10;
+  }
+  #video-el { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+  /* ── Playbar ────────────────────────────────── */
+  #playbar-track {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 5px; background: rgba(255,255,255,0.06); z-index: 20; pointer-events: none;
+  }
+  #playbar-fill {
+    height: 100%; width: 0%;
+    background: var(--accent); box-shadow: 0 0 8px var(--accent); transition: width 0.1s linear;
+  }
+
+  /* ── Input overlay ──────────────────────────── */
+  #input-overlay {
+    position: absolute; top: 14px; left: 14px;
+    font-size: 11px; letter-spacing: 3px; color: rgba(224,203,106,0.6);
+    text-transform: uppercase; z-index: 15; pointer-events: none;
+  }
+
+  /* ── Cooldown overlay ───────────────────────── */
+  #cooldown-overlay {
+    display: none; position: absolute; inset: 0;
+    background: rgba(6,13,14,0.82); z-index: 30;
+    flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+    pointer-events: none;
+  }
+  #cooldown-label {
+    font-size: 13px; letter-spacing: 5px; color: var(--accent); text-transform: uppercase;
+    animation: blink 0.9s steps(1) infinite;
+  }
+  @keyframes blink { 0%,49%{opacity:1} 50%,100%{opacity:0.18} }
+  #cooldown-bar-track { width: 280px; height: 5px; background: var(--border2); border-radius: 3px; overflow: hidden; }
+  #cooldown-bar-fill  { height: 100%; width: 0%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+  /* ── Sentence screen ────────────────────────── */
+  #sentence-screen {
+    display: none; width: 100%; height: 100%;
+    padding: 40px; flex-direction: column; align-items: center; justify-content: center;
+    gap: 28px; text-align: center;
+  }
+  #sentence-label {
+    font-size: 11px; letter-spacing: 3px; color: var(--dim); text-transform: uppercase;
+  }
+  #sentence-text {
+    font-size: 26px; line-height: 1.6; color: #dde6e7; max-width: 560px;
+  }
+  #sentence-text .blank {
+    display: inline-block; min-width: 140px;
+    border-bottom: 2px solid var(--accent); color: var(--accent); font-style: italic;
+  }
+
+  /* ── Multiple choice grid ───────────────────── */
+  #mc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    width: 100%;
+    max-width: 500px;
+  }
+  .mc-btn {
+    background: #0a1415;
+    border: 1px solid var(--border2);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 16px;
+    padding: 16px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    transition: background 0.12s, border-color 0.12s, color 0.12s, box-shadow 0.12s;
+    text-align: center; line-height: 1.3;
+  }
+  /* Knob-highlighted (not yet confirmed) */
+  .mc-btn.active {
+    background: rgba(224,203,106,0.1);
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 14px rgba(224,203,106,0.15);
+  }
+  /* Confirmed via knob-click */
+  .mc-btn.selected {
+    background: rgba(224,203,106,0.18);
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 20px rgba(224,203,106,0.25);
+  }
+  .mc-btn:disabled { cursor: default; }
+
+  /* Option number badge */
+  .mc-btn .opt-num {
+    display: inline-block;
+    font-size: 10px;
+    margin-right: 6px;
+    opacity: 0.4;
+    letter-spacing: 1px;
+  }
+
+  #progress-text { font-size: 12px; color: var(--dim); letter-spacing: 1px; }
+
+  /* ── Result screen ──────────────────────────── */
+  #result-screen {
+    display: none; width: 100%; height: 100%;
+    padding: 40px; flex-direction: column; align-items: center;
+    justify-content: center; gap: 24px; text-align: center; overflow-y: auto;
+  }
+  #result-title { font-size: 14px; letter-spacing: 4px; text-transform: uppercase; }
+  #result-title.retry   { color: var(--dim); }
+  #result-title.success { color: var(--accent); }
+  #result-body { font-size: 14px; color: var(--dim); max-width: 400px; line-height: 1.8; letter-spacing: 0.5px; }
+  .round-stats { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 14px; font-size: 12px; letter-spacing: 2px; text-transform: uppercase; }
+  .stat-correct   { color: var(--green); }
+  .stat-sep       { color: var(--border2); }
+  .stat-remaining { color: var(--accent); }
+
+  #lever-hint {
+    display: flex; align-items: center; gap: 12px;
+    color: var(--dim); font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
+    animation: nudge 1.8s ease-in-out infinite;
+  }
+  @keyframes nudge { 0%,100%{transform:translateX(0)} 50%{transform:translateX(-6px)} }
+
+  /* ── Learning arc ───────────────────────────── */
+  #learning-arc { display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 480px; text-align: left; }
+  .arc-row {
+    display: flex; align-items: center; gap: 12px;
+    opacity: 0; transform: translateY(8px);
+    animation: rowIn 0.4s ease forwards;
+  }
+  @keyframes rowIn { to { opacity:1; transform:translateY(0); } }
+  .arc-label  { font-size: 10px; letter-spacing: 2px; color: var(--dim); min-width: 64px; text-transform: uppercase; }
+  .arc-dots   { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; }
+  .arc-dot    { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+  .arc-dot.mastered  { background: var(--green); box-shadow: 0 0 5px var(--green); }
+  .arc-dot.remaining { background: #0a1a1c; border: 1px solid var(--border2); }
+  .arc-count  { font-size: 11px; color: var(--dim); min-width: 36px; text-align: right; letter-spacing: 1px; }
+  #arc-total  {
+    font-size: 11px; color: var(--dim); letter-spacing: 2px; text-transform: uppercase;
+    border-top: 1px solid var(--border); padding-top: 12px;
+    width: 100%; max-width: 480px; text-align: center;
+  }
+  #module1-code {
+    font-size: 28px; letter-spacing: 6px; color: var(--green);
+    font-family: 'Courier New', monospace;
+    text-shadow: 0 0 16px var(--green); text-align: center; margin-top: 8px;
+  }
+
+  /* ── Controls panel ─────────────────────────── */
+  #controls { display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 20px 0; }
+  #mode-indicator {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent);
+    text-align: center; padding: 6px 0;
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); width: 100%;
+  }
+
+  /* ── Lever ──────────────────────────────────── */
+  #lever-container { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .lever-label { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); transition: color 0.3s; text-align: center; }
+  .lever-label.active { color: var(--accent); }
+  #lever-track {
+    width: 34px; height: 100px; background: #080f10;
+    border: 2px solid var(--border2); border-radius: 17px;
+    position: relative; cursor: pointer;
+    box-shadow: inset 0 3px 10px rgba(0,0,0,0.85); transition: border-color 0.3s;
+  }
+  #lever-track:hover { border-color: var(--accent); }
+  #lever-track.hint-pulse {
+    animation: leverPulse 1.2s ease-in-out infinite;
+  }
+  @keyframes leverPulse {
+    0%,100% { border-color: var(--border2); }
+    50%     { border-color: var(--accent); box-shadow: inset 0 3px 10px rgba(0,0,0,0.85), 0 0 12px rgba(224,203,106,0.3); }
+  }
+  #lever-handle {
+    width: 26px; height: 34px;
+    background: linear-gradient(150deg, #3a5055, #1a2a2e);
+    border: 1px solid #4a6268; border-radius: 12px;
+    position: absolute; left: 2px; top: 3px;
+    transition: top 0.38s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.1);
+  }
+  #lever-handle::after {
+    content: ''; position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    width: 10px; height: 2px; background: #5a7a80; border-radius: 1px;
+    box-shadow: 0 4px 0 #5a7a80, 0 -4px 0 #5a7a80;
+  }
+  body.test-mode #lever-handle            { top: calc(100% - 37px); }
+  body.test-mode .lever-label:first-child { color: var(--dim); }
+  body.test-mode .lever-label:last-child  { color: var(--accent); }
+
+  /* ── Knob ───────────────────────────────────── */
+  #knob-container { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  #knob-label {
+    font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: var(--dim);
+    transition: color 0.3s;
+  }
+  #knob-label.active { color: var(--accent); }
+  #knob-svg {
+    cursor: grab; display: block;
+    filter: drop-shadow(0 4px 14px rgba(0,50,59,0.5));
+    transition: opacity 0.3s;
+  }
+  #knob-svg:active   { cursor: grabbing; }
+  #knob-svg.disabled { opacity: 0.35; cursor: not-allowed; }
+  #knob-time { font-size: 12px; color: var(--dim); letter-spacing: 2px; min-width: 60px; text-align: center; }
+  /* Tap-to-confirm hint shown in TEST MODEL */
+  #knob-hint {
+    display: none;
+    font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim);
+    text-align: center; margin-top: 2px;
+  }
+
+  /* ── Status bar ─────────────────────────────── */
+  #status-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    border-top: 1px solid var(--border); padding-top: 14px;
+    font-size: 11px; color: var(--dim); letter-spacing: 1px;
+  }
+  #status-left { display: flex; gap: 24px; }
+
+  /* ── Flicker ────────────────────────────────── */
+  @keyframes flicker {
+    0%,100%{opacity:1} 8%{opacity:0.12} 18%{opacity:0.95} 28%{opacity:0.06} 38%{opacity:1} 48%{opacity:0.28} 58%{opacity:1}
+  }
+  .flicker { animation: flicker 0.42s steps(1) forwards; }
+
+  /* ── Controls toggle button ──────────────────── */
+  #controls-toggle {
+    position: fixed; bottom: 18px; right: 18px;
+    width: 28px; height: 28px;
+    background: var(--panel); border: 1px solid var(--border2);
+    border-radius: 50%; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 200; opacity: 0.3; transition: opacity 0.2s, border-color 0.2s;
+    color: var(--dim); padding: 0;
+  }
+  #controls-toggle:hover { opacity: 1; border-color: var(--accent); color: var(--accent); }
+  #controls-toggle svg { width: 12px; height: 12px; display: block; }
+
+  /* ── Floating controls panel ─────────────────── */
+  #sw-controls {
+    position: fixed; bottom: 56px; right: 18px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px 20px;
+    z-index: 199; box-shadow: 0 8px 36px rgba(0,0,0,0.7);
+    transform: translateY(12px) scale(0.97);
+    opacity: 0; pointer-events: none;
+    transition: transform 0.22s, opacity 0.22s;
+  }
+  #sw-controls.open { transform: translateY(0) scale(1); opacity: 1; pointer-events: all; }
+
+  /* ── Bias toggle button ──────────────────────── */
+  #bias-toggle {
+    position: fixed; bottom: 18px; right: 56px;
+    width: 28px; height: 28px;
+    background: var(--panel); border: 1px solid var(--border2);
+    border-radius: 50%; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 200; opacity: 0.3; transition: opacity 0.2s, border-color 0.2s;
+    color: var(--dim); padding: 0;
+  }
+  #bias-toggle:hover { opacity: 1; border-color: #4a8aaa; color: #4a8aaa; }
+  #bias-toggle svg { width: 12px; height: 12px; display: block; }
+
+  /* ── Bias floating panel ─────────────────────── */
+  #bias-panel {
+    position: fixed; bottom: 56px; right: 56px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 18px 20px;
+    z-index: 1001; box-shadow: 0 8px 36px rgba(0,0,0,0.7);
+    transform: translateY(12px) scale(0.97);
+    opacity: 0; pointer-events: none;
+    transition: transform 0.22s, opacity 0.22s;
+    width: 240px; display: flex; flex-direction: column; gap: 14px;
+  }
+  #bias-panel.open { transform: translateY(0) scale(1); opacity: 1; pointer-events: all; }
+
+  #bias-title {
+    font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--dim); border-bottom: 1px solid var(--border); padding-bottom: 10px;
+  }
+  #bias-status {
+    font-size: 11px; letter-spacing: 1px; color: var(--dim); text-align: center; min-height: 16px;
+  }
+
+  /* Choice buttons */
+  #bias-choices { display: flex; gap: 10px; }
+  .bias-btn {
+    flex: 1; background: #080f10; border: 1px solid var(--border2);
+    color: var(--text); font-family: var(--font); font-size: 11px;
+    letter-spacing: 2px; text-transform: uppercase; padding: 12px 6px;
+    border-radius: 4px; cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+  }
+  .bias-btn:hover { border-color: #4a8aaa; color: #4a8aaa; }
+  .bias-btn.toggled { border-color: #4a8aaa; background: rgba(74,138,170,0.2); color: #4a8aaa; }
+  #bias-choices.idle-mode .bias-btn { opacity: 0.55; font-size: 10px; }
+  #bias-choices.idle-mode .bias-btn.toggled { opacity: 1; }
+
+  /* Streak dots */
+  #bias-streak { display: flex; gap: 6px; justify-content: center; }
+  .streak-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--border2); border: 1px solid var(--border2);
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  .streak-dot.correct { background: var(--green); box-shadow: 0 0 6px var(--green); border-color: var(--green); }
+
+  /* Start button */
+  #bias-start-btn {
+    background: rgba(74,138,170,0.1); border: 1px solid #4a8aaa;
+    color: #4a8aaa; font-family: var(--font); font-size: 10px;
+    letter-spacing: 2px; text-transform: uppercase; padding: 10px;
+    border-radius: 3px; cursor: pointer; transition: background 0.15s;
+  }
+  #bias-start-btn:hover { background: rgba(74,138,170,0.2); }
+
+  /* ── Pump toggle button ─────────────────────── */
+  #pump-toggle {
+    position: fixed; bottom: 18px; right: 94px;
+    width: 28px; height: 28px;
+    background: var(--panel); border: 1px solid var(--border2);
+    border-radius: 50%; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 200; opacity: 0.3; transition: opacity 0.2s, border-color 0.2s;
+    color: var(--dim); padding: 0;
+  }
+  #pump-toggle:hover { opacity: 1; border-color: #4a8aaa; color: #4a8aaa; }
+  #pump-toggle svg { width: 12px; height: 12px; display: block; }
+
+  /* ── Pump modal ──────────────────────────────── */
+  #pump-modal-backdrop {
+    display: none; position: fixed; inset: 0;
+    background: rgba(6,13,14,0.88); z-index: 1001;
+    align-items: center; justify-content: center;
+  }
+  #pump-modal-backdrop.open { display: flex; }
+  #pump-modal {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 28px;
+    width: min(90vw, 480px); display: flex; flex-direction: column; gap: 18px;
+    box-shadow: 0 20px 80px rgba(0,0,0,0.85);
+  }
+  #pump-modal-header { display: flex; justify-content: space-between; align-items: center; }
+  #pump-modal-title {
+    font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: var(--dim);
+  }
+  #pump-modal-close {
+    background: none; border: none; color: var(--dim); font-size: 20px;
+    cursor: pointer; padding: 0; line-height: 1; transition: color 0.15s;
+  }
+  #pump-modal-close:hover { color: var(--text); }
+
+  /* LCD simulation */
+  #pump-lcd {
+    background: #060e06; border: 2px solid #1a3020; border-radius: 4px;
+    padding: 14px 18px; font-family: 'Courier New', monospace;
+    font-size: 20px; color: #4dcc70; letter-spacing: 0.08em;
+    box-shadow: inset 0 0 24px rgba(0,30,10,0.6), 0 0 12px rgba(0,50,20,0.2);
+  }
+  .lcd-row { display: block; min-width: 16ch; white-space: pre; }
+
+  /* Streak indicators */
+  .pump-streaks { display: flex; flex-direction: column; gap: 8px; }
+  .pump-streak-row { display: flex; align-items: center; gap: 10px; }
+  .pump-streak-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); min-width: 38px; }
+  .pump-streak-dots { display: flex; gap: 6px; }
+  .pump-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #0a1414; border: 1px solid var(--border2);
+    transition: background 0.25s, box-shadow 0.25s;
+  }
+  .pump-dot.win  { background: var(--green); border-color: var(--green); box-shadow: 0 0 6px var(--green); }
+  .pump-dot.miss { background: var(--red);   border-color: var(--red);   box-shadow: 0 0 6px var(--red); }
+
+  /* Pump progress */
+  #pump-progress-track { height: 6px; background: var(--border2); border-radius: 3px; overflow: hidden; }
+  #pump-progress-fill  {
+    height: 100%; width: 0%;
+    background: #4a8aaa; box-shadow: 0 0 8px rgba(74,138,170,0.5);
+    transition: width 0.2s ease;
+  }
+
+#pump-status { font-size: 12px; color: var(--dim); letter-spacing: 1px; min-height: 16px; text-align: center; }
+
+  @keyframes pumpError {
+    0%,100% { border-color: #1a3020; box-shadow: inset 0 0 24px rgba(0,30,10,0.6), 0 0 12px rgba(0,50,20,0.2); }
+    25%,75%  { border-color: var(--red); box-shadow: inset 0 0 24px rgba(80,0,0,0.6), 0 0 20px rgba(180,40,40,0.4); }
+  }
+  #pump-lcd.error { animation: pumpError 0.35s ease 2; }
+
+  @keyframes pumpWinBlink {
+    0%,100% { border-color: #1a3020; box-shadow: inset 0 0 24px rgba(0,30,10,0.6), 0 0 12px rgba(0,50,20,0.2); }
+    50% { border-color: var(--green); box-shadow: inset 0 0 40px rgba(0,70,15,0.9), 0 0 32px rgba(0,200,60,0.65); }
+  }
+  #pump-lcd.winning { animation: pumpWinBlink 0.4s ease 5; }
+
+  /* Pump slider */
+  .pump-slider-wrap {
+    display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 4px 0;
+  }
+  .pump-sensor-btn {
+    background: rgba(74,138,170,0.08); border: 1px solid var(--border2); color: var(--dim);
+    font-family: var(--font); font-size: 9px; letter-spacing: 2px;
+    text-transform: uppercase; padding: 8px 24px; border-radius: 3px;
+    cursor: pointer; user-select: none;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+  }
+  .pump-sensor-btn:hover { border-color: #4a8aaa; color: #4a8aaa; }
+  .pump-sensor-btn.lit {
+    background: rgba(74,138,170,0.35); border-color: #4a8aaa;
+    color: #4a8aaa; box-shadow: 0 0 10px rgba(74,138,170,0.45);
+  }
+  #pump-slider-track {
+    position: relative; width: 4px; height: 130px;
+    background: var(--border2); border-radius: 2px;
+  }
+  #pump-slider-handle {
+    position: absolute; left: 50%; top: 50%;
+    transform: translateX(-50%) translateY(-50%);
+    width: 28px; height: 28px; background: #0d1a1c;
+    border: 2px solid #4a8aaa; border-radius: 50%;
+    cursor: grab; touch-action: none;
+    box-shadow: 0 0 8px rgba(74,138,170,0.3);
+  }
+  #pump-slider-handle:hover { box-shadow: 0 0 14px rgba(74,138,170,0.55); }
+  #pump-slider-handle:active { cursor: grabbing; }
+
+  /* Blue water light */
+  #bias-water-light {
+    display: none; align-self: center;
+    width: 36px; height: 36px; border-radius: 50%;
+    background: #1a6aff; box-shadow: 0 0 24px #1a6aff, 0 0 48px rgba(26,106,255,0.4);
+    animation: waterPulse 0.6s ease-in-out 3;
+  }
+  @keyframes waterPulse {
+    0%,100% { transform: scale(1); opacity: 1; }
+    50%     { transform: scale(1.3); opacity: 0.6; }
+  }
+
+  /* ── QR session intro overlay ─────────────────── */
+  #qr-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: #060d0e;
+    display: flex; align-items: center; justify-content: center;
+    transition: opacity 0.6s ease;
+  }
+  #qr-overlay.hidden { opacity: 0; pointer-events: none; }
+  #qr-box {
+    display: flex; flex-direction: column; align-items: center; gap: 20px;
+    text-align: center;
+  }
+  #qr-title {
+    font-size: 11px; letter-spacing: 4px; text-transform: uppercase;
+    color: var(--accent);
+  }
+  #qr-image {
+    width: 220px; height: 220px;
+    border: 2px solid var(--border2); border-radius: 4px;
+    image-rendering: pixelated;
+  }
+  #qr-image.hidden { display: none; }
+  #qr-sub {
+    font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--dim);
+  }
+  #qr-led-row {
+    display: flex; gap: 6px; margin-top: 4px;
+  }
+  .qr-led {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #0d1a1c; border: 1px solid var(--border2);
+    transition: background 0.1s, box-shadow 0.1s;
+  }
+  .qr-led.on {
+    background: var(--teal-hl);
+    box-shadow: 0 0 6px var(--teal-hl), 0 0 14px rgba(74,138,170,0.4);
+  }
+</style>
+</head>
+<body>
+
+<!-- QR session intro overlay -->
+<div id="qr-overlay">
+  <div id="qr-box">
+    <div id="qr-title">Scan de QR-code</div>
+    <img id="qr-image" src="" alt="QR code">
+    <div id="qr-sub">Draai daarna aan de knop om te starten</div>
+    <div id="qr-led-row"></div>
+  </div>
+  <button id="qr-connect-btn" style="position:absolute;bottom:18px;right:18px;font-family:var(--font);font-size:10px;letter-spacing:2px;text-transform:uppercase;background:none;border:1px solid var(--border2);color:var(--dim);padding:5px 12px;border-radius:3px;cursor:pointer;transition:border-color 0.2s,color 0.2s">Verbinden</button>
+</div>
+
+<div id="machine">
+
+  <div id="header">
+    <div id="title">Opleiding tot AI-chatbot</div>
+    <div id="led-array"></div>
+    <div id="model-id">OLTC-v1</div>
+  </div>
+
+  <div id="main-area">
+
+    <div id="screen-area">
+      <div id="input-overlay">● OPNAME LOOPT</div>
+      <video id="video-el" muted playsinline preload="auto"></video>
+      <div id="playbar-track"><div id="playbar-fill"></div></div>
+      <div id="cooldown-overlay">
+        <div id="cooldown-label">Herinitialiseren…</div>
+        <div id="cooldown-bar-track"><div id="cooldown-bar-fill"></div></div>
+      </div>
+      <div id="sentence-screen">
+        <div id="sentence-label">Draai de zwengel — keuze vergrendelt als de tijd om is</div>
+        <div id="sentence-text"></div>
+        <div id="mc-grid"></div>
+        <div id="progress-text"></div>
+      </div>
+      <div id="result-screen">
+        <div id="result-title"></div>
+        <div id="result-body"></div>
+        <div id="lever-hint" style="display:none">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M14 10 L6 10 M6 10 L10 6 M6 10 L10 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Zet schakelaar naar input data
+        </div>
+        <div id="learning-arc"  style="display:none"></div>
+        <div id="arc-total"     style="display:none"></div>
+        <div id="module1-code"  style="display:none"></div>
+        <div id="module1-prompt" style="display:none;margin-top:20px;text-align:center">
+          <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent);margin-bottom:8px">Draai de sleutel voor de volgende deelnemer</div>
+          <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--dim)">Jij kunt door naar het volgende onderdeel →</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="status-bar">
+    <div id="status-left">
+      <span id="status-mode">MODUS: INPUT DATA</span>
+      <span id="status-sentence" style="display:none"></span>
+    </div>
+    <span>STROOM ●</span>
+  </div>
+
+</div>
+
+<!-- Pump module toggle -->
+<button id="pump-toggle" title="Pump module">
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="8" y1="2" x2="8" y2="14"/>
+    <polyline points="5,5 8,2 11,5"/>
+    <polyline points="5,11 8,14 11,11"/>
+  </svg>
+</button>
+
+<!-- Pump modal (large centered overlay) -->
+<div id="pump-modal-backdrop">
+  <div id="pump-modal">
+    <div id="pump-modal-header">
+      <div id="pump-modal-title">Pump module</div>
+      <button id="pump-modal-close" onclick="closePumpGame()">×</button>
+    </div>
+    <div id="pump-lcd">
+      <span class="lcd-row" id="pump-lcd-row0">                </span>
+      <span class="lcd-row" id="pump-lcd-row1">                </span>
+    </div>
+    <div class="pump-streaks">
+      <div class="pump-streak-row">
+        <div class="pump-streak-label">Win</div>
+        <div class="pump-streak-dots">
+          <div class="pump-dot" id="pump-win-0"></div>
+          <div class="pump-dot" id="pump-win-1"></div>
+          <div class="pump-dot" id="pump-win-2"></div>
+        </div>
+      </div>
+      <div class="pump-streak-row">
+        <div class="pump-streak-label">Miss</div>
+        <div class="pump-streak-dots">
+          <div class="pump-dot" id="pump-miss-0"></div>
+          <div class="pump-dot" id="pump-miss-1"></div>
+          <div class="pump-dot" id="pump-miss-2"></div>
+        </div>
+      </div>
+    </div>
+    <div id="pump-progress-track"><div id="pump-progress-fill"></div></div>
+    <div id="pump-status"></div>
+    <div class="pump-slider-wrap">
+      <button class="pump-sensor-btn" id="pump-sensor-high" onclick="clickSensorHigh()">▲ HOOG</button>
+      <div id="pump-slider-track">
+        <div id="pump-slider-handle"></div>
+      </div>
+      <button class="pump-sensor-btn" id="pump-sensor-low" onclick="clickSensorLow()">▼ LAAG</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bias module toggle (next to controls toggle) -->
+<button id="bias-toggle" title="Bias module">
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <path d="M1 8h2l2-5 2 10 2-7 2 4 2-2h2"/>
+  </svg>
+</button>
+
+<!-- Bias module floating panel -->
+<div id="bias-panel">
+  <div id="bias-title">Bias module</div>
+  <div id="bias-streak">
+    <div class="streak-dot" id="bias-dot-0"></div>
+    <div class="streak-dot" id="bias-dot-1"></div>
+  </div>
+  <div id="bias-status">Klaar om te starten</div>
+  <div id="bias-choices" class="idle-mode">
+    <button class="bias-btn" id="bias-btn-left"  onclick="handleBiasBtn('left')">← Links</button>
+    <button class="bias-btn" id="bias-btn-right" onclick="handleBiasBtn('right')">Rechts →</button>
+  </div>
+  <div id="bias-water-light"></div>
+</div>
+
+<audio id="bias-audio"></audio>
+<audio id="pump-digit-audio"></audio>
+
+<!-- Controls toggle (bottom-right corner) -->
+<button id="controls-toggle" title="Controls">
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <circle cx="8" cy="8" r="2.5"/>
+    <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.2 3.2l1.4 1.4M11.4 11.4l1.4 1.4M11.4 3.2l-1.4 1.4M4.6 11.4l-1.4 1.4"/>
+  </svg>
+</button>
+
+<!-- Floating software controls panel -->
+<div id="sw-controls">
+  <div id="controls">
+    <div id="mode-indicator">INPUT DATA</div>
+    <div id="lever-container">
+      <div class="lever-label active">↑ Input data</div>
+      <div id="lever-track">
+        <div id="lever-handle"></div>
+      </div>
+      <div class="lever-label">↓ Test model</div>
+    </div>
+    <div id="knob-container">
+      <div id="knob-label">Zwengel</div>
+      <svg id="knob-svg" width="140" height="140" viewBox="0 0 90 90">
+        <circle cx="45" cy="45" r="43" fill="#060d0e" stroke="#1f2e30" stroke-width="2"/>
+        <g id="ticks" stroke="#2a3e42" stroke-width="1.5"></g>
+        <circle cx="45" cy="45" r="34" fill="url(#knobGrad)" stroke="#253538" stroke-width="1"/>
+        <circle cx="45" cy="45" r="34" fill="none" stroke="rgba(0,0,0,0.45)" stroke-width="5" stroke-dasharray="75 145"/>
+        <line id="knob-pointer" x1="45" y1="45" x2="45" y2="14" stroke="#e0cb6a" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="45" cy="45" r="4" fill="#0d1416" stroke="#2a3e41" stroke-width="1"/>
+        <defs>
+          <radialGradient id="knobGrad" cx="38%" cy="32%">
+            <stop offset="0%" stop-color="#253538"/>
+            <stop offset="100%" stop-color="#0d1416"/>
+          </radialGradient>
+        </defs>
+      </svg>
+      <div id="knob-time">0:00</div>
+      <div id="knob-hint">draai = selecteer</div>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
+      <button id="serial-btn" style="font-family:var(--font);font-size:10px;letter-spacing:2px;text-transform:uppercase;background:none;border:1px solid var(--border2);color:var(--dim);padding:5px 12px;border-radius:3px;cursor:pointer;width:100%;transition:border-color 0.2s,color 0.2s">Verbinden</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── Data (loaded from server) ───────────────────────────────────────────────
+
+let TRAINABLE    = [];
+let ALL_NONSENSE = [];
+
+async function fetchRound() {
+  const res  = await fetch('/api/sentences/round?trainable=10&nonsense=6');
+  const data = await res.json();
+  // Normalise DB rows to the shape the game expects
+  TRAINABLE = data.trainable.map(s => ({
+    text:    s.text,
+    options: s.options.map(o => ({ text: o.text, correct: !!o.correct })),
+  }));
+  ALL_NONSENSE = data.nonsense.map(s => ({
+    text:    s.text,
+    options: s.options.map(o => ({ text: o.text, correct: true })),
+  }));
+}
+
+async function loadActiveVideo() {
+  const res  = await fetch('/api/settings');
+  const data = await res.json();
+  if (data.active_video && !$videoEl.src.endsWith('/video/' + data.active_video)) {
+    $videoEl.src = '/video/' + data.active_video;
+    $videoEl.load();
+  }
+  if (data.dial_sensitivity) videoStepScale = parseFloat(data.dial_sensitivity);
+  if (data.quiz_sensitivity) DEG_PER_OPTION = parseInt(data.quiz_sensitivity);
+}
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const LED_COUNT      = 20;
+const MAX_DEG        = 1080;   // 3 full turns = full video scrub
+const COOLDOWN_MS    = 2400;
+const LED_FILL_MS    = 7000;
+const NONSENSE_RATIO = 0.6; // nonsense sentences per trainable sentence (6 nonsense / 10 trainable)
+const ADVANCE_MS        = 600;    // delay after selection before next sentence
+let   DEG_PER_OPTION    = 90;     // encoder degrees to advance one MC option (raise = less sensitive)
+const QUESTION_TIMER_MS = 5000;   // ms per question before auto-selecting current option
+const DEG_PER_STEP  = 0.5;          // encoder steps → degrees for quiz option selection
+let   videoStepScale = 0.5;          // encoder steps → video scrub speed; set from admin dial_sensitivity setting
+
+// ─── Persistent session state ─────────────────────────────────────────────────
+
+let remainingTrainable = [];
+let roundHistory       = [];
+
+// ─── Per-round state ──────────────────────────────────────────────────────────
+
+let mode         = 'input';
+let sentences    = [];
+let currentIndex = 0;
+let answered     = false;
+let results      = [];
+
+// ─── Knob state ───────────────────────────────────────────────────────────────
+
+// INPUT DATA: free-spinning accumulator (maps to video time)
+let knobAngle      = 0;
+let targetVideoTime = 0; // velocity-based video position (jog wheel)
+// TEST MODEL: separate accumulator for option selection
+let selectionAngle    = 0;
+let committedOptAngle = 0; // angle at which last option switch was committed (hysteresis)
+let selectedOptIdx    = 0;
+
+// Drag tracking
+let dragging       = false;
+let lastMouseAngle = 0;
+
+// Question timer (TEST MODEL)
+let qTimerRafId = null;
+
+// Video seek throttle
+let seekPending  = false;
+let pendingSeekT = 0;
+
+// LED / cooldown
+let videoDuration = 0;
+let knobLocked    = false;
+let ledFillStart  = null;
+let ledFillRafId  = null;
+let ledFillDone   = false;
+let cooldownTimer = null;
+let cooldownRafId = null;
+
+// ─── DOM refs ────────────────────────────────────────────────────────────────
+
+const $leds            = document.getElementById('led-array');
+const $videoEl         = document.getElementById('video-el');
+const $playbarFill     = document.getElementById('playbar-fill');
+const $playbarTrack    = document.getElementById('playbar-track');
+const $cooldownOverlay = document.getElementById('cooldown-overlay');
+const $cooldownBarFill = document.getElementById('cooldown-bar-fill');
+const $sentenceScreen  = document.getElementById('sentence-screen');
+const $sentenceLabel   = document.getElementById('sentence-label');
+const $sentenceText    = document.getElementById('sentence-text');
+const $mcGrid          = document.getElementById('mc-grid');
+const $progressText    = document.getElementById('progress-text');
+const $resultScreen    = document.getElementById('result-screen');
+const $resultTitle     = document.getElementById('result-title');
+const $resultBody      = document.getElementById('result-body');
+const $leverHint       = document.getElementById('lever-hint');
+const $learningArc     = document.getElementById('learning-arc');
+const $arcTotal        = document.getElementById('arc-total');
+const $leverTrack    = document.getElementById('lever-track');
+const $knobSvg       = document.getElementById('knob-svg');
+const $knobPointer   = document.getElementById('knob-pointer');
+const $knobTime      = document.getElementById('knob-time');
+const $knobLabel     = document.getElementById('knob-label');
+const $knobHint      = document.getElementById('knob-hint');
+const $modeIndicator = document.getElementById('mode-indicator');
+const $statusMode      = document.getElementById('status-mode');
+const $statusSentence  = document.getElementById('status-sentence');
+const $inputOverlay    = document.getElementById('input-overlay');
+const $screenArea      = document.getElementById('screen-area');
+const $serialBtn       = document.getElementById('serial-btn');
+const $qrConnectBtn    = document.getElementById('qr-connect-btn');
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function mod(v, n) { return ((v % n) + n) % n; }
+
+// ─── LED helpers ─────────────────────────────────────────────────────────────
+
+function buildLeds() {
+  for (let i = 0; i < LED_COUNT; i++) {
+    const d = document.createElement('div');
+    d.className = 'led';
+    $leds.appendChild(d);
+  }
+}
+
+const _ledStates = new Array(LED_COUNT).fill(0);
+let _ledSendPending = false;
+
+function setLedClass(i, cls) {
+  const led = $leds.children[i];
+  if (led) led.className = 'led' + (cls ? ' ' + cls : '');
+  _ledStates[i] = cls === 'on'   ? (mode === 'input' ? 4 : 5)
+                : cls === 'full' ? 2 : cls === 'done' ? 3 : cls === 'flash' ? 6 : 0;
+  if (!_ledSendPending) {
+    _ledSendPending = true;
+    requestAnimationFrame(() => {
+      _ledSendPending = false;
+      writeSerial('LED:' + _ledStates.join(''));
+    });
+  }
+}
+
+function idleLeds() {
+  for (let i = 0; i < LED_COUNT; i++) setLedClass(i, '');
+}
+
+function ledFlash() {
+  for (let i = 0; i < LED_COUNT; i++) setLedClass(i, 'flash');
+}
+
+let _loadAnimRafId = null;
+
+function startLoadingAnim() {
+  stopLoadingAnim();
+  const stepMs  = 80;
+  const steps   = LED_COUNT / 2;       // 10 steps to fill from both ends to middle
+  const cycleMs = steps * stepMs;      // 800ms per cycle (~3 cycles in COOLDOWN_MS)
+  const t0 = performance.now();
+  function tick(now) {
+    const step = Math.floor(((now - t0) % cycleMs) / stepMs);
+    for (let i = 0; i < LED_COUNT; i++) {
+      setLedClass(i, (i <= step || i >= LED_COUNT - 1 - step) ? 'full' : '');
+    }
+    _loadAnimRafId = requestAnimationFrame(tick);
+  }
+  _loadAnimRafId = requestAnimationFrame(tick);
+}
+
+function stopLoadingAnim() {
+  if (_loadAnimRafId) { cancelAnimationFrame(_loadAnimRafId); _loadAnimRafId = null; }
+}
+
+// INPUT DATA: time-based fill from left
+function startLedFill() {
+  if (ledFillStart !== null) return;
+  ledFillStart = performance.now();
+  ledFillDone  = false;
+  function tick(now) {
+    if (mode !== 'input' || knobLocked) return;
+    const frac = Math.min(1, (now - ledFillStart) / LED_FILL_MS);
+    const lit  = Math.round(frac * LED_COUNT);
+    for (let i = 0; i < LED_COUNT; i++) setLedClass(i, i < lit ? 'on' : '');
+    if (frac < 1) {
+      ledFillRafId = requestAnimationFrame(tick);
+    } else if (!ledFillDone) {
+      ledFillDone = true;
+      triggerCooldown();
+    }
+  }
+  ledFillRafId = requestAnimationFrame(tick);
+}
+
+function stopLedFill() {
+  if (ledFillRafId) { cancelAnimationFrame(ledFillRafId); ledFillRafId = null; }
+  ledFillStart = null; ledFillDone = false;
+}
+
+// TEST MODEL: per-question countdown — fills LEDs, auto-selects on timeout
+function startQuestionTimer() {
+  if (qTimerRafId) cancelAnimationFrame(qTimerRafId);
+  const start = performance.now();
+  function tick(now) {
+    if (answered) return;
+    const frac = Math.min(1, (now - start) / QUESTION_TIMER_MS);
+    const lit  = Math.round(frac * LED_COUNT);
+    for (let i = 0; i < LED_COUNT; i++) setLedClass(i, i < lit ? 'on' : '');
+    if (frac < 1) {
+      qTimerRafId = requestAnimationFrame(tick);
+    } else {
+      // Time's up — lock in whichever option is currently highlighted
+      const btn = $mcGrid.querySelector(`.mc-btn[data-step="${selectedOptIdx}"]`);
+      if (btn && !answered) selectOption(sentences[currentIndex], selectedOptIdx, btn);
+    }
+  }
+  qTimerRafId = requestAnimationFrame(tick);
+}
+
+function stopQuestionTimer() {
+  if (qTimerRafId) { cancelAnimationFrame(qTimerRafId); qTimerRafId = null; }
+}
+
+// ─── Knob visual ─────────────────────────────────────────────────────────────
+
+function buildTicks() {
+  const g = document.getElementById('ticks');
+  if (!g) return;
+  for (let i = 0; i < 24; i++) {
+    const rad = ((i / 24) * 360 - 90) * Math.PI / 180;
+    const isMain = i % 6 === 0, r1 = isMain ? 36 : 38, r2 = 43;
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1', 45 + r1 * Math.cos(rad)); line.setAttribute('y1', 45 + r1 * Math.sin(rad));
+    line.setAttribute('x2', 45 + r2 * Math.cos(rad)); line.setAttribute('y2', 45 + r2 * Math.sin(rad));
+    line.setAttribute('stroke-width', isMain ? 2 : 1);
+    g.appendChild(line);
+  }
+}
+
+function setKnobVisual(deg) {
+  const rad = (deg - 90) * Math.PI / 180, r = 31;
+  $knobPointer.setAttribute('x2', 45 + r * Math.cos(rad));
+  $knobPointer.setAttribute('y2', 45 + r * Math.sin(rad));
+}
+
+function formatTime(s) {
+  return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2,'0');
+}
+
+function getAngle(cx, cy, x, y) { return Math.atan2(y - cy, x - cx) * 180 / Math.PI; }
+
+// ─── Physical hardware (Web Serial) ──────────────────────────────────────────
+
+function applyEncoderInput(steps) {
+  const deg = steps * DEG_PER_STEP;
+  knobAngle += deg;
+  if (qrActive) {
+    if (Date.now() < qrIgnoreUntil) return;
+    qrDeg = Math.min(QR_DEG_REQUIRED, qrDeg + Math.abs(deg));
+    updateQrLeds(qrDeg);
+    if (qrDeg >= QR_DEG_REQUIRED) startGame();
+    return;
+  }
+  if (mode === 'input' && !knobLocked) {
+    if (ledFillStart === null) startLedFill();
+    if (videoDuration > 0) {
+      targetVideoTime = clamp(targetVideoTime + steps * videoStepScale * (videoDuration / MAX_DEG), 0, videoDuration);
+      pendingSeekT = targetVideoTime;
+      if (!seekPending) {
+        seekPending = true;
+        requestAnimationFrame(() => {
+          if ($videoEl.fastSeek) $videoEl.fastSeek(pendingSeekT);
+          else $videoEl.currentTime = pendingSeekT;
+          seekPending = false;
+        });
+      }
+      updatePlaybar(targetVideoTime / videoDuration);
+    }
+  } else if (mode === 'test' && !answered) {
+    selectionAngle += deg;
+    while (selectionAngle >= committedOptAngle + DEG_PER_OPTION) {
+      committedOptAngle += DEG_PER_OPTION;
+      selectedOptIdx = mod(selectedOptIdx + 1, 4);
+      updateMcSelection(selectedOptIdx);
+    }
+    while (selectionAngle <= committedOptAngle - DEG_PER_OPTION) {
+      committedOptAngle -= DEG_PER_OPTION;
+      selectedOptIdx = mod(selectedOptIdx - 1, 4);
+      updateMcSelection(selectedOptIdx);
+    }
+  }
+}
+
+function handleSerialLine(line) {
+  if (line.startsWith('R:')) {
+    const steps = parseInt(line.slice(2), 10);
+    if (!isNaN(steps)) { applyEncoderInput(steps); reportIO({ encoder_at: Date.now(), encoder_steps: steps }); }
+  } else if (line === 'S:QUIZ') {
+    enterTestMode();
+  } else if (line === 'S:VIDEO') {
+    if (remainingTrainable.length === 0 && roundHistory.length > 0) {
+      remoteReset();
+    } else {
+      enterInputMode();
+    }
+  } else if (line === 'B:LEFT') {
+    handleBiasBtn('left');
+  } else if (line === 'B:RIGHT') {
+    handleBiasBtn('right');
+  } else if (line === 'B:START') {
+    if (biasState === 'idle') { stopBiasIdleLoop(); startBias(); }
+  } else if (line === 'C:HIGH')  { handlePumpHigh();  reportIO({ pump_high_at:  Date.now() });
+  } else if (line === 'C:LOW')   { handlePumpLow();   reportIO({ pump_low_at:   Date.now() });
+  } else if (line === 'C:CHEAT') { handlePumpCheat(); reportIO({ pump_cheat_at: Date.now() });
+  } else if (line.startsWith('D:')) {
+    const val = parseInt(line.slice(2), 10);
+    if (!isNaN(val)) {
+      const inRange = val >= biasSensorMin && val <= biasSensorMax;
+      if (inRange && !biasPersonPresent && biasState === 'idle') {
+        biasPersonPresent = true;
+        (biasConfig
+          ? Promise.resolve()
+          : fetch('/api/bias/config').then(r => r.json()).then(d => {
+              biasConfig = d;
+              biasSensorMin = Number(d.sensor_min ?? 0);
+              biasSensorMax = Number(d.sensor_max ?? 1023);
+            })
+        ).then(startBiasIdleLoop);
+      } else if (!inRange && biasPersonPresent && biasState === 'idle') {
+        biasPersonPresent = false;
+        stopBiasIdleLoop();
+      }
+      // Throttle: only POST to server when value changes meaningfully or every 2s
+      const _now = Date.now();
+      if (_lastReportedSensorVal === null || Math.abs(val - _lastReportedSensorVal) >= 5 || _now - _lastSensorReportMs > 2000) {
+        _lastReportedSensorVal = val;
+        _lastSensorReportMs    = _now;
+        reportIO({ sensor_value: val, sensor_in_range: inRange });
+      }
+    }
+  }
+}
+
+class LineBreakTransformer {
+  constructor() { this.buf = ''; }
+  transform(chunk, ctrl) {
+    this.buf += chunk;
+    const lines = this.buf.split('\n');
+    lines.slice(0, -1).forEach(l => ctrl.enqueue(l.trim()));
+    this.buf = lines[lines.length - 1];
+  }
+  flush(ctrl) { if (this.buf) ctrl.enqueue(this.buf.trim()); }
+}
+
+let serialWriter = null;
+
+function writeSerial(line) {
+  if (serialWriter) serialWriter.write(line + '\n').catch(() => {});
+}
+
+async function openPort(port) {
+  await port.open({ baudRate: 115200 });
+  $serialBtn.textContent = '● Verbonden';
+  $serialBtn.style.color = 'var(--green)';
+  $qrConnectBtn.textContent = '● Verbonden';
+  $qrConnectBtn.style.color = 'var(--green)';
+  // Discard accumulated encoder steps the ESP32 sends on connect
+  qrDeg = 0;
+  qrIgnoreUntil = Date.now() + 1500;
+  updateQrLeds(0);
+  // Set up writer for LCD commands
+  const textEncoder = new TextEncoderStream();
+  textEncoder.readable.pipeTo(port.writable).catch(() => {});
+  serialWriter = textEncoder.writable.getWriter();
+  const reader = port.readable
+    .pipeThrough(new TextDecoderStream())
+    .pipeThrough(new TransformStream(new LineBreakTransformer()))
+    .getReader();
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (value) handleSerialLine(value);
+  }
+}
+
+async function connectSerial() {
+  try {
+    const port = await navigator.serial.requestPort();
+    await openPort(port);
+  } catch (e) {
+    $serialBtn.textContent = 'Verbinden';
+    $serialBtn.style.color = '';
+    $qrConnectBtn.textContent = 'Verbinden';
+    $qrConnectBtn.style.color = '';
+  }
+}
+
+async function autoConnect() {
+  if (!navigator.serial) return;
+  try {
+    const ports = await navigator.serial.getPorts();
+    if (ports.length === 1) await openPort(ports[0]);
+  } catch (e) { /* silently ignore */ }
+}
+
+$serialBtn.addEventListener('click', connectSerial);
+$qrConnectBtn.addEventListener('click', connectSerial);
+autoConnect();
+
+// ─── Knob interaction ─────────────────────────────────────────────────────────
+
+function onKnobDown(e) {
+  if (knobLocked && mode === 'input') return;
+  e.preventDefault();
+  dragging = true;
+  const px = e.touches ? e.touches[0].clientX : e.clientX;
+  const py = e.touches ? e.touches[0].clientY : e.clientY;
+  const rect = $knobSvg.getBoundingClientRect();
+  lastMouseAngle = getAngle(rect.left + rect.width / 2, rect.top + rect.height / 2, px, py);
+  if ($knobSvg.setPointerCapture) $knobSvg.setPointerCapture(e.pointerId);
+  if (mode === 'input') startLedFill();
+}
+
+function onKnobMove(e) {
+  if (!dragging) return;
+  e.preventDefault();
+
+  const rect = $knobSvg.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+  const px = e.touches ? e.touches[0].clientX : e.clientX;
+  const py = e.touches ? e.touches[0].clientY : e.clientY;
+  const angle = getAngle(cx, cy, px, py);
+  let delta = angle - lastMouseAngle;
+  if (delta >  180) delta -= 360;
+  if (delta < -180) delta += 360;
+  lastMouseAngle = angle;
+
+  // Report encoder movement to dashboard (throttled 100ms)
+  if (Math.abs(delta) > 0.5) {
+    const now = Date.now();
+    if (!onKnobMove._t || now - onKnobMove._t > 100) {
+      onKnobMove._t = now;
+      const stepsEst = delta > 0 ? Math.max(1, Math.round(delta / 3)) : Math.min(-1, Math.round(delta / 3));
+      reportIO({ encoder_at: now, encoder_steps: stepsEst });
+    }
+  }
+
+  if (mode === 'input' && !knobLocked) {
+    // Jog wheel: delta drives video time, knob spins freely
+    knobAngle += delta;
+    setKnobVisual(mod(knobAngle, 360));
+    if (videoDuration > 0) {
+      targetVideoTime = clamp(
+        targetVideoTime + delta * videoStepScale * (videoDuration / MAX_DEG),
+        0, videoDuration
+      );
+      $knobTime.textContent = formatTime(targetVideoTime);
+      pendingSeekT = targetVideoTime;
+      if (!seekPending) {
+        seekPending = true;
+        requestAnimationFrame(() => {
+          if ($videoEl.fastSeek) $videoEl.fastSeek(pendingSeekT);
+          else $videoEl.currentTime = pendingSeekT;
+          seekPending = false;
+        });
+      }
+      updatePlaybar(targetVideoTime / videoDuration);
+    }
+  } else if (mode === 'test' && !answered) {
+    // Selection dial — accumulate freely, snap to options
+    selectionAngle += delta;
+    setKnobVisual(mod(selectionAngle, 360));
+    while (selectionAngle >= committedOptAngle + DEG_PER_OPTION) {
+      committedOptAngle += DEG_PER_OPTION;
+      selectedOptIdx = mod(selectedOptIdx + 1, 4);
+      updateMcSelection(selectedOptIdx);
+    }
+    while (selectionAngle <= committedOptAngle - DEG_PER_OPTION) {
+      committedOptAngle -= DEG_PER_OPTION;
+      selectedOptIdx = mod(selectedOptIdx - 1, 4);
+      updateMcSelection(selectedOptIdx);
+    }
+  }
+}
+
+function onKnobUp() {
+  dragging = false;
+}
+
+$knobSvg.addEventListener('pointerdown', onKnobDown);
+window.addEventListener('pointermove',   onKnobMove);
+window.addEventListener('pointerup',     onKnobUp);
+$knobSvg.addEventListener('touchstart',  onKnobDown, { passive: false });
+window.addEventListener('touchmove',     onKnobMove, { passive: false });
+window.addEventListener('touchend',      onKnobUp);
+
+// ─── MC selection (knob-driven) ───────────────────────────────────────────────
+
+function updateMcSelection(step) {
+  $mcGrid.querySelectorAll('.mc-btn').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.step) === step);
+  });
+}
+
+// ─── Cooldown ────────────────────────────────────────────────────────────────
+
+function triggerCooldown() {
+  knobLocked = true; dragging = false;
+  startLoadingAnim();
+  $knobSvg.classList.add('disabled');
+  $cooldownOverlay.style.display = 'flex';
+  $cooldownBarFill.style.width = '0%';
+
+  const start = performance.now();
+  (function animBar(now) {
+    const pct = clamp((now - start) / COOLDOWN_MS, 0, 1) * 100;
+    $cooldownBarFill.style.width = pct + '%';
+    if (pct < 100) cooldownRafId = requestAnimationFrame(animBar);
+  })(start);
+
+  cooldownTimer = setTimeout(() => {
+    stopLoadingAnim();
+    knobAngle = 0; targetVideoTime = 0; setKnobVisual(0);
+    $videoEl.currentTime = 0; $knobTime.textContent = '0:00';
+    updatePlaybar(0); idleLeds(); stopLedFill();
+    $cooldownOverlay.style.display = 'none';
+    $knobSvg.classList.remove('disabled');
+    knobLocked = false;
+  }, COOLDOWN_MS);
+}
+
+function cancelCooldown() {
+  clearTimeout(cooldownTimer); cancelAnimationFrame(cooldownRafId);
+  stopLoadingAnim();
+  $cooldownOverlay.style.display = 'none';
+  $knobSvg.classList.remove('disabled');
+  knobLocked = false;
+}
+
+// ─── Playbar ─────────────────────────────────────────────────────────────────
+
+function updatePlaybar(f) { $playbarFill.style.width = clamp(f, 0, 1) * 100 + '%'; }
+
+$videoEl.addEventListener('timeupdate', () => {
+  if (videoDuration > 0 && !dragging) updatePlaybar($videoEl.currentTime / videoDuration);
+});
+$videoEl.addEventListener('loadedmetadata', () => { videoDuration = $videoEl.duration; });
+
+// ─── Lever ───────────────────────────────────────────────────────────────────
+
+$leverTrack.addEventListener('click', () => {
+  mode === 'input' ? enterTestMode() : enterInputMode();
+});
+
+function flicker(cb) {
+  $screenArea.classList.add('flicker');
+  setTimeout(() => { $screenArea.classList.remove('flicker'); cb && cb(); }, 420);
+}
+
+function hideAllScreens() {
+  $videoEl.style.display        = 'none';
+  $sentenceScreen.style.display = 'none';
+  $resultScreen.style.display   = 'none';
+}
+
+function enterTestMode() {
+  if (remainingTrainable.length === 0 && roundHistory.length > 0) {
+    mode = 'test'; document.body.classList.add('test-mode'); syncModeUI();
+    ledFlash(); flicker(() => { hideAllScreens(); showSuccess(); }); return;
+  }
+  mode = 'test'; document.body.classList.add('test-mode'); syncModeUI();
+  reportIO({ mode: 'test' });
+  stopLedFill(); stopQuestionTimer(); cancelCooldown();
+  $leverTrack.classList.remove('hint-pulse');
+  ledFlash(); flicker(() => {
+    hideAllScreens();
+    sentences = buildRoundSentences();
+    currentIndex = 0; results = []; answered = false;
+    selectionAngle = 0; committedOptAngle = 0; selectedOptIdx = 0;
+    showSentence();
+  });
+}
+
+function enterInputMode() {
+  const wasComplete = remainingTrainable.length === 0 && roundHistory.length > 0;
+  mode = 'input'; document.body.classList.remove('test-mode'); syncModeUI();
+  reportIO({ mode: 'input' });
+  reportProgress('idle');
+  stopQuestionTimer();
+  $leverTrack.classList.remove('hint-pulse');
+  ledFlash(); flicker(async () => {
+    hideAllScreens();
+    $videoEl.style.display      = 'block';
+    $playbarTrack.style.display = '';
+    idleLeds();
+    if (wasComplete) {
+      // New visitor — load a fresh random batch and reset session
+      await fetchRound();
+      remainingTrainable = TRAINABLE.map(s => ({...s}));
+      roundHistory = [];
+    }
+  });
+}
+
+function syncModeUI() {
+  if (mode === 'input') {
+    $modeIndicator.textContent    = 'INPUT DATA';
+    $statusMode.textContent       = 'MODUS: INPUT DATA';
+    $statusSentence.style.display = 'none';
+    $inputOverlay.style.display   = '';
+    $playbarTrack.style.display   = '';
+    $knobLabel.textContent        = 'Zwengel';
+    $knobLabel.classList.remove('active');
+    $knobHint.style.display       = 'none';
+    $knobTime.style.display       = '';
+  } else {
+    $modeIndicator.textContent    = 'TEST MODEL';
+    $statusMode.textContent       = 'MODUS: TEST MODEL';
+    $statusSentence.style.display = '';
+    $inputOverlay.style.display   = 'none';
+    $playbarTrack.style.display   = 'none';
+    $knobLabel.textContent        = 'Keuze';
+    $knobLabel.classList.add('active');
+    $knobHint.style.display       = 'block';  // shows "draai = selecteer"
+    $knobTime.style.display       = 'none';
+  }
+}
+
+// ─── Sentence building ───────────────────────────────────────────────────────
+
+function buildRoundSentences() {
+  if (remainingTrainable.length === 0 || ALL_NONSENSE.length === 0) return [];
+  const nCount   = Math.max(1, Math.round(remainingTrainable.length * NONSENSE_RATIO));
+  const nonsense = shuffle(ALL_NONSENSE).slice(0, nCount);
+  return shuffle([
+    ...remainingTrainable.map(s => ({ ...s, options: shuffle(s.options.map(o => ({...o}))), type: 'trainable' })),
+    ...nonsense.map(s =>         ({ ...s, options: shuffle(s.options.map(o => ({...o}))), type: 'nonsense'  })),
+  ]);
+}
+
+// ─── Quiz ────────────────────────────────────────────────────────────────────
+
+function showSentence() {
+  if (sentences.length === 0) return;
+  if (currentIndex >= sentences.length) { endRound(); return; }
+
+  const s = sentences[currentIndex];
+  $sentenceScreen.style.display = 'flex';
+  $resultScreen.style.display   = 'none';
+  document.getElementById('module1-code').style.display = 'none';
+  document.getElementById('module1-prompt').style.display = 'none';
+
+  $sentenceText.innerHTML = s.text.replace('___', '<span class="blank">___</span>');
+
+  // Reset selection for this question
+  selectionAngle = 0; committedOptAngle = 0; selectedOptIdx = 0;
+
+  $mcGrid.innerHTML = '';
+  // DOM order matches CW grid: TL(step0), TR(step1), BL(step3), BR(step2)
+  [0, 1, 3, 2].forEach(stepIdx => {
+    const btn = document.createElement('button');
+    btn.className = 'mc-btn' + (stepIdx === 0 ? ' active' : '');
+    btn.dataset.step = stepIdx;
+    btn.innerHTML = `<span class="opt-num">${stepIdx + 1}</span>${s.options[stepIdx].text}`;
+    btn.addEventListener('click', () => { selectedOptIdx = stepIdx; selectOption(s, stepIdx, btn); });
+    $mcGrid.appendChild(btn);
+  });
+
+  $progressText.textContent   = `${currentIndex + 1} / ${sentences.length}`;
+  $statusSentence.textContent = `ZIN: ${currentIndex + 1}/${sentences.length}`;
+  reportProgress('quiz');
+
+  // Reset knob pointer to option 0
+  setKnobVisual(0);
+  answered = false;
+
+  // Start per-question LED countdown
+  startQuestionTimer();
+}
+
+function selectOption(s, chosenIdx, chosenBtn) {
+  if (answered) return;
+  answered = true;
+  stopQuestionTimer();
+
+  $mcGrid.querySelectorAll('.mc-btn').forEach(b => { b.disabled = true; b.classList.remove('active'); });
+  chosenBtn.classList.add('selected');
+
+  const chosen  = s.options[chosenIdx];
+  const correct = s.type === 'nonsense' || chosen.correct;
+  results.push({ sentence: s, userAnswer: chosen.text, correct, hallucination: s.type === 'nonsense' });
+
+  setTimeout(() => { currentIndex++; showSentence(); }, ADVANCE_MS);
+}
+
+// ─── End of round ─────────────────────────────────────────────────────────────
+
+function endRound() {
+  stopQuestionTimer();
+  const trainR     = results.filter(r => !r.hallucination);
+  const mastered   = new Set(trainR.filter(r => r.correct).map(r => r.sentence.text));
+  roundHistory.push({ startCount: remainingTrainable.length, masteredCount: mastered.size });
+  remainingTrainable = remainingTrainable.filter(s => !mastered.has(s.text));
+  reportProgress('result');
+  idleLeds();
+  remainingTrainable.length === 0 ? showSuccess() : showTryAgain(mastered.size, remainingTrainable.length);
+}
+
+// ─── Result screens ───────────────────────────────────────────────────────────
+
+function showTryAgain(correctCount, remainingCount) {
+  $sentenceScreen.style.display = 'none';
+  $resultScreen.style.display   = 'flex';
+  $resultTitle.textContent      = 'Niet alle data verwerkt';
+  $resultTitle.className        = 'retry';
+  $resultBody.innerHTML =
+    'Het model heeft nog niet genoeg geleerd. Zet de schakelaar terug naar INPUT DATA en train het model verder.' +
+    `<div class="round-stats">` +
+      `<span class="stat-correct">✓ ${correctCount} goed</span>` +
+      `<span class="stat-sep">·</span>` +
+      `<span class="stat-remaining">${remainingCount} nog te leren</span>` +
+    `</div>`;
+  $leverHint.style.display      = 'flex';
+  $learningArc.style.display    = 'none';
+  $arcTotal.style.display       = 'none';
+  $leverTrack.classList.add('hint-pulse');
+  $statusSentence.textContent   = 'HERHALING VEREIST';
+}
+
+function showSuccess() {
+  for (let i = 0; i < LED_COUNT; i++) setLedClass(i, 'done');
+  $sentenceScreen.style.display = 'none';
+  $resultScreen.style.display   = 'flex';
+  $resultTitle.textContent      = 'Training voltooid';
+  $resultTitle.className        = 'success';
+  $resultBody.textContent       = 'Het model heeft alle trainingsdata correct verwerkt.';
+  $leverHint.style.display      = 'none';
+  $leverTrack.classList.remove('hint-pulse');
+
+  $learningArc.style.display = 'flex';
+  $learningArc.innerHTML     = '';
+
+  roundHistory.forEach((round, i) => {
+    const row = document.createElement('div');
+    row.className = 'arc-row';
+    row.style.animationDelay = (i * 120) + 'ms';
+
+    const label = document.createElement('div');
+    label.className = 'arc-label';
+    label.textContent = `Poging ${i + 1}`;
+    row.appendChild(label);
+
+    const dotsEl = document.createElement('div');
+    dotsEl.className = 'arc-dots';
+    for (let d = 0; d < round.startCount; d++) {
+      const dot = document.createElement('div');
+      dot.className = 'arc-dot ' + (d < round.masteredCount ? 'mastered' : 'remaining');
+      dot.style.opacity    = '0';
+      dot.style.transition = `opacity 0.25s ${i * 120 + d * 30}ms`;
+      dotsEl.appendChild(dot);
+      requestAnimationFrame(() => requestAnimationFrame(() => { dot.style.opacity = '1'; }));
+    }
+    row.appendChild(dotsEl);
+
+    const countEl = document.createElement('div');
+    countEl.className   = 'arc-count';
+    countEl.textContent = `${round.masteredCount}/${round.startCount}`;
+    row.appendChild(countEl);
+    $learningArc.appendChild(row);
+  });
+
+  const total = roundHistory.length;
+  $arcTotal.style.display = 'block';
+  $arcTotal.textContent   = `${total} ${total === 1 ? 'poging' : 'pogingen'} nodig`;
+  $statusSentence.textContent = 'TRAINING VOLTOOID';
+
+  // Participant code
+  fetch('/api/modules/1/complete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: currentSessionId })
+  })
+    .then(r => r.json())
+    .then(({ code }) => {
+      const el = document.getElementById('module1-code');
+      el.textContent = '#' + code;
+      el.style.display = 'block';
+      document.getElementById('module1-prompt').style.display = 'block';
+    }).catch(() => {});
+}
+
+// ─── Progress reporting ──────────────────────────────────────────────────────
+
+function reportProgress(phase) {
+  const total    = TRAINABLE.length;
+  const mastered = total - remainingTrainable.length;
+  fetch('/api/game/progress', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phase, mode, mastered, total }),
+  }).catch(() => {});
+}
+
+// ─── Remote reset polling ────────────────────────────────────────────────────
+
+let knownResetToken = null;
+
+async function pollGameState() {
+  try {
+    const res  = await fetch('/api/game/state');
+    const data = await res.json();
+    if (knownResetToken === null) {
+      knownResetToken = data.reset_token;
+    } else if (data.reset_token !== knownResetToken) {
+      knownResetToken = data.reset_token;
+      await remoteReset();
+    }
+    if (data.dial_sensitivity != null) videoStepScale = data.dial_sensitivity;
+    if (data.quiz_sensitivity != null) DEG_PER_OPTION = data.quiz_sensitivity;
+  } catch { /* server unreachable — ignore */ }
+}
+
+async function remoteReset() {
+  mode = 'input';
+  document.body.classList.remove('test-mode');
+  stopLedFill(); stopQuestionTimer(); cancelCooldown();
+  $leverTrack.classList.remove('hint-pulse');
+  syncModeUI();
+  reportProgress('idle');
+  roundHistory = [];
+
+  ledFlash();
+  flicker(async () => {
+    hideAllScreens();
+    $videoEl.style.display      = 'block';
+    $playbarTrack.style.display = '';
+    idleLeds();
+    document.getElementById('module1-code').style.display   = 'none';
+    document.getElementById('module1-prompt').style.display = 'none';
+
+    // Restart QR intro for the next player
+    currentSessionId  = null;
+    qrDeg             = 0;
+    qrIgnoreUntil     = Date.now() + 1500;
+    updateQrLeds(0);
+
+    const overlay = document.getElementById('qr-overlay');
+    if (qrHideTimeout) { clearTimeout(qrHideTimeout); qrHideTimeout = null; }
+    overlay.style.display = 'flex';
+    overlay.classList.remove('hidden');
+
+    let session;
+    try { session = await fetch('/api/session/new').then(r => r.json()); } catch (_) {}
+    if (session?.qr) {
+      currentSessionId = session.sessionId ?? null;
+      document.getElementById('qr-image').src = session.qr;
+      qrActive = true;
+    } else {
+      overlay.style.display = 'none';
+      await startGame();
+    }
+  });
+}
+
+const _pollGameInterval = setInterval(pollGameState, 3000);
+
+// ─── Bias reset polling ──────────────────────────────────────────────────────
+
+let knownBiasResetToken = null;
+
+async function pollBiasState() {
+  try {
+    const res  = await fetch('/api/bias/state');
+    const data = await res.json();
+    if (knownBiasResetToken === null) {
+      knownBiasResetToken = data.bias_reset_token;
+    } else if (data.bias_reset_token !== knownBiasResetToken) {
+      knownBiasResetToken = data.bias_reset_token;
+      biasStreak = 0; biasQueue = []; currentBiasStory = null;
+      biasPersonPresent = false;
+      stopBiasIdleLoop();
+      updateStreakDots();
+      setBiasState('idle');
+    }
+  } catch { /* ignore */ }
+}
+
+const _pollBiasInterval = setInterval(pollBiasState, 3000);
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearInterval(_pollGameInterval);
+    clearInterval(_pollBiasInterval);
+  }
+});
+
+// ─── Bias module ─────────────────────────────────────────────────────────────
+
+let biasStories      = [];
+let biasQueue        = [];
+let biasStreak       = 0;
+let biasState        = 'idle'; // idle | story | choice | feedback | complete
+let biasConfig       = null;
+let currentBiasStory = null;
+let biasLeftToggled  = false;
+let biasRightToggled = false;
+let biasBothBtnTimer      = null;
+let biasPendingChoiceSide = null;
+let biasIdleTimer    = null;
+let biasPersonPresent = false;
+let biasSensorMin    = 0;
+let biasSensorMax    = 1023;
+let _lastReportedSensorVal = null;
+let _lastSensorReportMs    = 0;
+
+const $biasAudio      = document.getElementById('bias-audio');
+const $biasStatus     = document.getElementById('bias-status');
+const $biasChoices    = document.getElementById('bias-choices');
+const $biasWaterLight = document.getElementById('bias-water-light');
+
+const ioBroadcast = new BroadcastChannel('oltc-io');
+
+function reportIO(data) {
+  ioBroadcast.postMessage(data);
+  fetch('/api/io/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).catch(() => {});
+}
+
+function reportBiasProgress() {
+  fetch('/api/bias/progress', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      state:     biasState,
+      streak:    biasStreak,
+      storyName: currentBiasStory?.name ?? '',
+    }),
+  }).catch(() => {});
+}
+
+function setBiasState(state) {
+  biasState = state;
+  const showChoices = state === 'idle' || state === 'choice';
+  $biasChoices.style.display = showChoices ? 'flex' : 'none';
+  $biasChoices.classList.toggle('idle-mode', state === 'idle');
+  $biasWaterLight.style.display = 'none';
+
+  // Reset toggle buttons and any pending choice timer on any state change
+  biasLeftToggled = false;
+  biasRightToggled = false;
+  if (biasBothBtnTimer !== null) { clearTimeout(biasBothBtnTimer); biasBothBtnTimer = null; biasPendingChoiceSide = null; }
+  document.getElementById('bias-btn-left').classList.remove('toggled');
+  document.getElementById('bias-btn-right').classList.remove('toggled');
+
+  const labels = {
+    idle:     'Houd beide knoppen vast om te starten',
+    story:    'Luister goed…',
+    choice:   'Maak een keuze',
+    feedback: '',
+    complete: 'Speelt eindbericht…',
+  };
+  $biasStatus.textContent = labels[state] ?? '';
+  reportBiasProgress();
+}
+
+function updateStreakDots() {
+  document.getElementById('bias-dot-0').className = 'streak-dot' + (biasStreak >= 1 ? ' correct' : '');
+  document.getElementById('bias-dot-1').className = 'streak-dot' + (biasStreak >= 2 ? ' correct' : '');
+}
+
+function playBiasAudio(filename, onended) {
+  if (!filename) { onended && onended(); return; }
+  $biasAudio.src = '/audio/' + filename;
+  $biasAudio.onended = onended ?? null;
+  $biasAudio.play().catch(() => { onended && onended(); });
+}
+
+function startBiasIdleLoop() {
+  if (biasState !== 'idle' || !biasConfig?.start_audio) return;
+  playBiasAudio(biasConfig.start_audio, () => {
+    if (biasState === 'idle') biasIdleTimer = setTimeout(startBiasIdleLoop, 1500);
+  });
+}
+
+function stopBiasIdleLoop() {
+  clearTimeout(biasIdleTimer); biasIdleTimer = null;
+  $biasAudio.pause(); $biasAudio.currentTime = 0;
+}
+
+function handleBiasBtn(side) {
+  reportIO(side === 'left' ? { btn_left_at: Date.now() } : { btn_right_at: Date.now() });
+  if (biasState === 'idle') { handleBiasToggle(side); return; }
+
+  // In non-idle states: hold the press briefly to detect both-button restart.
+  // Two different buttons within 150 ms → restart the module from any state.
+  // One button after 150 ms → normal choice.
+  if (biasBothBtnTimer !== null && biasPendingChoiceSide !== side) {
+    // Second (different) button arrived within window → restart
+    clearTimeout(biasBothBtnTimer);
+    biasBothBtnTimer = null; biasPendingChoiceSide = null;
+    stopBiasIdleLoop(); startBias();
+    return;
+  }
+  if (biasBothBtnTimer !== null) clearTimeout(biasBothBtnTimer);
+  biasPendingChoiceSide = side;
+  biasBothBtnTimer = setTimeout(() => {
+    biasBothBtnTimer = null;
+    const s = biasPendingChoiceSide;
+    biasPendingChoiceSide = null;
+    handleBiasChoice(s);
+  }, 150);
+}
+
+function handleBiasToggle(side) {
+  if (side === 'left')  biasLeftToggled  = !biasLeftToggled;
+  if (side === 'right') biasRightToggled = !biasRightToggled;
+  document.getElementById('bias-btn-left').classList.toggle('toggled', biasLeftToggled);
+  document.getElementById('bias-btn-right').classList.toggle('toggled', biasRightToggled);
+  if (biasLeftToggled && biasRightToggled) {
+    biasLeftToggled = biasRightToggled = false;
+    stopBiasIdleLoop();
+    startBias();
+  }
+}
+
+async function startBias() {
+  stopBiasIdleLoop();
+
+  const storiesRes = await fetch('/api/bias/stories');
+  biasStories = await storiesRes.json();
+
+  if (biasStories.length === 0) {
+    $biasStatus.textContent = 'Geen verhalen ingesteld.'; return;
+  }
+
+  biasStreak = 0;
+  biasQueue  = [...biasStories].sort(() => Math.random() - 0.5);
+  updateStreakDots();
+
+  nextBiasStory();
+}
+
+function nextBiasStory() {
+  if (biasQueue.length === 0) {
+    biasQueue = [...biasStories].sort(() => Math.random() - 0.5);
+  }
+  currentBiasStory = biasQueue.shift();
+  setBiasState('story');
+  playBiasAudio(currentBiasStory.story_audio, () => setBiasState('choice'));
+}
+
+function handleBiasChoice(side) {
+  if (biasState !== 'choice' && biasState !== 'story') return;
+  if (biasState === 'story') {
+    $biasAudio.pause();
+    $biasAudio.onended = null;
+  }
+  const correct = currentBiasStory.correct_button === side;
+
+  setBiasState('feedback');
+
+  if (!correct) {
+    $biasWaterLight.style.display = 'block';
+    $biasWaterLight.style.animation = 'none';
+    requestAnimationFrame(() => {
+      $biasWaterLight.style.animation = 'waterPulse 0.6s ease-in-out 3';
+    });
+    reportIO({ pump_at: Date.now() });
+    writeSerial('PUMP:500');
+    const hadStreak = biasStreak;
+    biasStreak = 0;
+    updateStreakDots();
+    reportBiasProgress();
+    const wrongTrack = (hadStreak >= 1 && biasConfig.second_wrong_audio)
+      ? biasConfig.second_wrong_audio
+      : biasConfig.wrong_audio;
+    playBiasAudio(wrongTrack, () => nextBiasStory());
+  } else {
+    biasStreak++;
+    updateStreakDots();
+    reportBiasProgress();
+    if (biasStreak >= 2) {
+      setBiasState('complete');
+      fetch('/api/modules/2/complete', { method: 'POST' })
+        .then(r => r.json())
+        .then(({ code }) => {
+          $biasStatus.textContent = 'DEELNEMER #' + code;
+          playBiasAudio(biasConfig.final_audio, async () => {
+            await playDigitCode(code);
+            setBiasState('idle');
+            setTimeout(() => { if (biasState === 'idle') startBiasIdleLoop(); }, 4000);
+          });
+        })
+        .catch(() => { playBiasAudio(biasConfig.final_audio, () => {
+          setBiasState('idle');
+          setTimeout(() => { if (biasState === 'idle') startBiasIdleLoop(); }, 4000);
+        }); });
+    } else {
+      playBiasAudio(biasConfig.middle_correct_audio, () => nextBiasStory());
+    }
+  }
+}
+
+// Wire bias toggle
+const $biasPanel = document.getElementById('bias-panel');
+document.getElementById('bias-toggle').addEventListener('click', () => {
+  $biasPanel.classList.toggle('open');
+  if ($biasPanel.classList.contains('open')) {
+    $swControls.classList.remove('open');
+  }
+});
+
+// ─── Controls toggle ─────────────────────────────────────────────────────────
+
+const $swControls = document.getElementById('sw-controls');
+document.getElementById('controls-toggle').addEventListener('click', () => {
+  $swControls.classList.toggle('open');
+  if ($swControls.classList.contains('open')) {
+    $biasPanel.classList.remove('open');
+  }
+});
+
+// ─── Pump module ─────────────────────────────────────────────────────────────
+
+let pumpWords  = [], pumpConfig = { required: 8, word_duration: 3000 };
+let pumpWordIndex = 0, pumpTimer = null, pumpTransitionTimer = null;
+let pumpCount = 0, winStreak = 0, missStreak = 0;
+let pumpGameActive = false;
+let currentPumpWord = null;
+let pumpLastHardwareTrigger = null; // 'high' | 'low' | null — enforces sensor alternation
+let _lastLcdRow0 = null; // prevents re-sending unchanged word row to LCD
+
+function sendLCD(row, text) {
+  writeSerial('LCD:' + row + ',' + text.padEnd(16).slice(0, 16));
+}
+
+async function openPumpGame() {
+
+  const [cfgRes, wRes] = await Promise.all([fetch('/api/pump/config'), fetch('/api/pump/words')]);
+  pumpConfig = await cfgRes.json();
+  pumpWords  = await wRes.json();
+  if (pumpWords.length === 0) {
+    document.getElementById('pump-status').textContent = 'Geen woorden ingesteld in de dashboard.';
+    return;
+  }
+  pumpWordIndex = -1; pumpCount = 0; winStreak = 0; missStreak = 0;
+  currentPumpWord = null;
+  pumpGameActive = true;
+  sliderY = 50; sliderLastTrigger = null; applySliderY();
+  clickHighDone = false; clickLowDone = false;
+  pumpLastHardwareTrigger = null;
+  _lastLcdRow0 = null;
+  document.getElementById('pump-status').textContent = '';
+  updatePumpUI();
+  nextPumpWord();
+}
+
+function closePumpGame() {
+  document.getElementById('pump-modal-backdrop').classList.remove('open');
+}
+
+function nextPumpWord(fromWin = false) {
+  if (!pumpGameActive) return;
+
+  // Evaluate previous word result
+  if (currentPumpWord !== null) {
+    if (currentPumpWord.is_correct) {
+      if (pumpCount >= pumpConfig.required) {
+        winStreak++; // missStreak intentionally not reset on win
+      } else {
+        missStreak++;
+        if (missStreak >= 3) { winStreak = 0; missStreak = 0; }
+      }
+    }
+    pumpCount = 0;
+  }
+
+  if (winStreak >= 3) { showPumpWin(); return; }
+
+  // Pick a random word with balanced correct/incorrect distribution (50/50).
+  // Falls back to full list if one category is empty.
+  const correct   = pumpWords.filter(w => w.is_correct);
+  const incorrect = pumpWords.filter(w => !w.is_correct);
+  const pool = (correct.length && incorrect.length)
+    ? (Math.random() < 0.5 ? correct : incorrect)
+    : pumpWords;
+  // Avoid repeating the exact same word twice in a row
+  let candidate, attempts = 0;
+  do {
+    candidate = pool[Math.floor(Math.random() * pool.length)];
+    attempts++;
+  } while (candidate === currentPumpWord && attempts < 10);
+  const nextIdx = pumpWords.indexOf(candidate);
+  pumpWordIndex = nextIdx;
+  currentPumpWord = pumpWords[nextIdx];
+  // fromWin: last action was HOOG, force LAAG first to prevent momentum re-triggering HOOG.
+  // Timer expiry: reset to null so user can go either direction.
+  sliderY = 50; sliderLastTrigger = fromWin ? 'high' : null; applySliderY();
+  pumpLastHardwareTrigger = fromWin ? 'high' : null;
+  clickHighDone = false; clickLowDone = false;
+  _lastLcdRow0 = null; // force row0 re-send for new word
+  updatePumpUI();
+
+  pumpTimer = setTimeout(nextPumpWord, pumpConfig.word_duration);
+}
+
+function handlePumpHigh() {
+  if (!pumpGameActive || !currentPumpWord) return;
+  if (pumpTransitionTimer) return; // mid-transition: ignore to prevent LCD debris
+  if (pumpLastHardwareTrigger === 'high') return; // must alternate HIGH → LOW → HIGH
+  pumpLastHardwareTrigger = 'high';
+
+  if (currentPumpWord.is_correct) {
+    pumpCount++;
+    updatePumpUI();
+    if (pumpCount >= pumpConfig.required) {
+      clearTimeout(pumpTimer);
+      nextPumpWord(true); // fromWin: set sliderLastTrigger='high' to prevent re-trigger
+    }
+  } else {
+    winStreak = 0; pumpCount = 0;
+    updatePumpUI();
+    const errRow = '! FOUT WOORD    ';
+    document.getElementById('pump-lcd-row1').textContent = errRow;
+    sendLCD(1, errRow);
+    const lcd = document.getElementById('pump-lcd');
+    lcd.classList.remove('error');
+    void lcd.offsetWidth;
+    lcd.classList.add('error');
+    setTimeout(() => lcd.classList.remove('error'), 700);
+    clearTimeout(pumpTimer);
+    pumpTransitionTimer = setTimeout(() => { pumpTransitionTimer = null; nextPumpWord(false); }, 400);
+  }
+}
+
+function handlePumpLow() {
+  if (!pumpGameActive || !currentPumpWord) return;
+  if (pumpLastHardwareTrigger === 'low') return; // must alternate
+  pumpLastHardwareTrigger = 'low';
+}
+
+function handlePumpCheat() {
+  if (!pumpGameActive || !currentPumpWord) return;
+  reportIO({ pump_cheat_at: Date.now() });
+  if (currentPumpWord.is_correct) {
+    pumpCount = pumpConfig.required;
+    updatePumpUI();
+  }
+}
+
+// ── Pump slider ───────────────────────────────────────────────────────────
+// Slider represents the pump handle: drag up to HOOG, down to LAAG, must alternate.
+// Buttons are purely visual (lit when slider touches them) — clicking does nothing.
+let sliderDragging = false, sliderY = 50, sliderLastPY = 0;
+let sliderLastTrigger = null; // 'high' | 'low' | null — enforces alternation
+const SLIDER_SPEED_BASE = 0.28;
+function sliderSpeed() { return SLIDER_SPEED_BASE * Math.pow(0.55, winStreak); }
+
+function initPumpSlider() {
+  const handle = document.getElementById('pump-slider-handle');
+
+  handle.addEventListener('pointerdown', e => {
+    sliderDragging = true;
+    sliderLastPY = e.clientY;
+    handle.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+
+  handle.addEventListener('pointermove', e => {
+    if (!sliderDragging) return;
+    const dy = e.clientY - sliderLastPY;
+    sliderLastPY = e.clientY;
+    sliderY = Math.max(0, Math.min(100, sliderY + dy * sliderSpeed()));
+    applySliderY();
+
+    if (sliderY <= 5 && sliderLastTrigger !== 'high') {
+      sliderLastTrigger = 'high';
+      flashSensor('pump-sensor-high');
+      handlePumpHigh();
+      reportIO({ pump_high_at: Date.now() });
+    } else if (sliderY >= 95 && sliderLastTrigger !== 'low') {
+      sliderLastTrigger = 'low';
+      flashSensor('pump-sensor-low');
+      reportIO({ pump_low_at: Date.now() });
+    }
+  });
+
+  handle.addEventListener('pointerup',     () => { sliderDragging = false; });
+  handle.addEventListener('pointercancel', () => { sliderDragging = false; });
+}
+
+function applySliderY() {
+  const handle = document.getElementById('pump-slider-handle');
+  if (handle) handle.style.top = sliderY + '%';
+}
+
+function flashSensor(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add('lit');
+  setTimeout(() => el.classList.remove('lit'), 500);
+}
+
+// Direct button clicks — cheat mechanic: press HOOG + LAAG once (any order) = full pump.
+let clickHighDone = false, clickLowDone = false;
+
+function clickSensorHigh() {
+  if (!pumpGameActive || !currentPumpWord) return;
+  flashSensor('pump-sensor-high');
+  reportIO({ pump_high_at: Date.now() });
+  clickHighDone = true;
+  checkBothClicked();
+}
+function clickSensorLow() {
+  if (!pumpGameActive || !currentPumpWord) return;
+  flashSensor('pump-sensor-low');
+  reportIO({ pump_low_at: Date.now() });
+  clickLowDone = true;
+  checkBothClicked();
+}
+function checkBothClicked() {
+  if (!clickHighDone || !clickLowDone) return;
+  clickHighDone = false; clickLowDone = false;
+  sliderLastTrigger = 'high';
+  if (currentPumpWord && currentPumpWord.is_correct) pumpCount = pumpConfig.required - 1;
+  handlePumpHigh(); // completes the pump (increments to required → win) or triggers wrong-word reset
+}
+
+function showPumpWin() {
+  pumpGameActive = false;
+  clearTimeout(pumpTimer);
+  currentPumpWord = null;
+  // Fill all 3 win dots immediately
+  updatePumpUI();
+  // Blink LCD green, then reveal win text
+  const lcd = document.getElementById('pump-lcd');
+  lcd.classList.add('winning');
+  setTimeout(async () => {
+    lcd.classList.remove('winning');
+    // Increment participant counter and show code
+    let code = '0000';
+    try {
+      const res = await fetch('/api/modules/3/complete', { method: 'POST' });
+      code = (await res.json()).code;
+    } catch (_) {}
+    const codeStr = '#' + code; // e.g. "#1234" — 5 chars, leaving 11 for bar
+    sendLCD(0, '   GEWONNEN!    ');
+    _lastLcdRow0 = '   GEWONNEN!    ';
+    document.getElementById('pump-lcd-row0').textContent = '   GEWONNEN!    ';
+    document.getElementById('pump-status').textContent = 'Gewonnen!';
+    // Animate row 1: code + shrinking bar  e.g. "#1234 [======  ]"
+    const TOTAL_MS = 15000, BAR_CHARS = 9;
+    const codePrefix = (codeStr + ' ').slice(0, 6); // "#1234 " = 6 chars, bar gets 10
+    const start = Date.now();
+    const tickLCD = setInterval(() => {
+      const fill = Math.round(Math.max(0, 1 - (Date.now() - start) / TOTAL_MS) * BAR_CHARS);
+      const bar  = '[' + '='.repeat(fill) + ' '.repeat(BAR_CHARS - fill) + ']';
+      const row1 = (codePrefix + bar).padEnd(16).slice(0, 16);
+      document.getElementById('pump-lcd-row1').textContent = row1;
+      sendLCD(1, row1);
+    }, 200);
+    setTimeout(() => { clearInterval(tickLCD); openPumpGame(); }, TOTAL_MS);
+  }, 2100); // 5 blinks × 0.4s
+}
+
+const $digitAudio = document.getElementById('pump-digit-audio');
+
+async function playDigitCode(code) {
+  let settings;
+  try { settings = await fetch('/api/settings').then(r => r.json()); }
+  catch (_) { return; }
+  for (const digit of code) {
+    const file = settings[`digit_${digit}_audio`];
+    if (!file) continue;
+    await new Promise(resolve => {
+      $digitAudio.src = '/audio/' + file;
+      $digitAudio.onended = resolve;
+      $digitAudio.onerror = resolve;
+      $digitAudio.play().catch(resolve);
+    });
+    await new Promise(r => setTimeout(r, 150));
+  }
+}
+
+function updatePumpUI() {
+  // Win dots
+  for (let i = 0; i < 3; i++)
+    document.getElementById('pump-win-' + i).className = 'pump-dot' + (i < winStreak  ? ' win'  : '');
+  // Miss dots
+  for (let i = 0; i < 3; i++)
+    document.getElementById('pump-miss-' + i).className = 'pump-dot' + (i < missStreak ? ' miss' : '');
+  // Progress bar
+  const pct = pumpConfig.required > 0 ? Math.min(1, pumpCount / pumpConfig.required) * 100 : 0;
+  document.getElementById('pump-progress-fill').style.width = pct + '%';
+  // LCD
+  if (currentPumpWord) {
+    // Center word on row 0
+    const w = currentPumpWord.word.slice(0, 16);
+    const pad = Math.floor((16 - w.length) / 2);
+    const row0 = (' '.repeat(pad) + w).padEnd(16);
+    // Row 1: 8-char progress bar + win streak + miss streak (always 16 chars)
+    const fill = pumpConfig.required > 0
+      ? Math.min(8, Math.round((pumpCount / pumpConfig.required) * 8)) : 0;
+    const bar  = '[' + '='.repeat(fill) + ' '.repeat(8 - fill) + ']';
+    const row1 = (bar + ' W' + winStreak + ' M' + missStreak).padEnd(16).slice(0, 16);
+    document.getElementById('pump-lcd-row0').textContent = row0;
+    document.getElementById('pump-lcd-row1').textContent = row1;
+    if (row0 !== _lastLcdRow0) { sendLCD(0, row0); _lastLcdRow0 = row0; }
+    sendLCD(1, row1);
+  }
+}
+
+// Wire pump toggle
+const $pumpModalBackdrop = document.getElementById('pump-modal-backdrop');
+document.getElementById('pump-toggle').addEventListener('click', () => {
+  const isOpen = $pumpModalBackdrop.classList.contains('open');
+  if (isOpen) {
+    $pumpModalBackdrop.classList.remove('open');
+  } else {
+    $pumpModalBackdrop.classList.add('open');
+    $swControls.classList.remove('open');
+  }
+});
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+
+buildLeds();
+buildTicks();
+setKnobVisual(0);
+idleLeds();
+initPumpSlider();
+
+// ─── QR session intro ────────────────────────────────────────────────────────
+
+const QR_LED_COUNT    = 20;
+const QR_DEG_REQUIRED = 1800; // ~3 full turns to fill all LEDs
+let qrActive = false;
+let qrDeg    = 0;
+let qrIgnoreUntil = 0; // ignore encoder input briefly after serial connects
+
+(function buildQrLeds() {
+  const row = document.getElementById('qr-led-row');
+  for (let i = 0; i < QR_LED_COUNT; i++) {
+    const d = document.createElement('div');
+    d.className = 'qr-led';
+    row.appendChild(d);
+  }
+})();
+
+function updateQrLeds(deg) {
+  const leds = document.getElementById('qr-led-row').children;
+  const filled = Math.min(QR_LED_COUNT, Math.floor((deg / QR_DEG_REQUIRED) * QR_LED_COUNT));
+  for (let i = 0; i < QR_LED_COUNT; i++)
+    leds[i].className = 'qr-led' + (i < filled ? ' on' : '');
+}
+
+let currentSessionId = null;
+let qrHideTimeout    = null;
+
+async function startGame() {
+  qrActive = false;
+  const overlay = document.getElementById('qr-overlay');
+  overlay.classList.add('hidden');
+  qrHideTimeout = setTimeout(() => { overlay.style.display = 'none'; qrHideTimeout = null; }, 650);
+  if (currentSessionId) {
+    fetch('/api/session/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: currentSessionId })
+    }).catch(() => {});
+  }
+  await Promise.all([fetchRound(), loadActiveVideo()]);
+  remainingTrainable = TRAINABLE.map(s => ({...s}));
+  openPumpGame();
+  biasConfig = await fetch('/api/bias/config').then(r => r.json());
+  biasSensorMin = Number(biasConfig.sensor_min ?? 0);
+  biasSensorMax = Number(biasConfig.sensor_max ?? 1023);
+  startBiasIdleLoop();
+}
+
+(async () => {
+  let session;
+  try { session = await fetch('/api/session/new').then(r => r.json()); } catch (_) {}
+
+  if (session?.qr) {
+    currentSessionId = session.sessionId ?? null;
+    document.getElementById('qr-image').src = session.qr;
+    qrActive = true;
+  } else {
+    // Server unreachable — skip QR screen and start immediately
+    document.getElementById('qr-overlay').style.display = 'none';
+    await startGame();
+  }
+})();
+</script>
+</body>
+</html>

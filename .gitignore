@@ -1,0 +1,5 @@
+node_modules/
+server/database.sqlite
+esp32_oltc/.pio/
+video/
+.DS_Store

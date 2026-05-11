@@ -1,0 +1,1801 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OLTC Admin — Zinnen beheren</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:      #060d0e;
+    --panel:   #0d1416;
+    --border:  #1f2e30;
+    --border2: #2a3e41;
+    --accent:  #e0cb6a;
+    --text:    #cdd8d9;
+    --dim:     #4a6166;
+    --green:   #3ec96a;
+    --red:     #e05555;
+    --blue:    #4a8aaa;
+    --font:    'Courier New', Courier, monospace;
+  }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: var(--font); min-height: 100vh;
+    padding: 40px 5vw;
+  }
+  h1 { font-size: 13px; letter-spacing: 4px; text-transform: uppercase; color: var(--accent); margin-bottom: 32px; }
+  h2 { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--dim); margin-bottom: 0; }
+
+  /* ── Layout ── */
+  .layout { display: grid; grid-template-columns: 1fr 380px; gap: 40px; align-items: start; }
+
+  /* ── Video section ── */
+  .video-section {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 20px; margin-bottom: 32px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .video-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+  .video-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+  .video-card {
+    display: flex; align-items: center; gap: 10px;
+    background: #080f10; border: 1px solid var(--border2);
+    border-radius: 4px; padding: 10px 14px; cursor: pointer;
+    transition: border-color 0.15s, background 0.15s; font-size: 13px;
+  }
+  .video-card:hover { border-color: var(--accent); }
+  .video-card.active { border-color: var(--green); background: rgba(62,201,106,0.06); }
+  .video-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--border2); }
+  .video-card.active .video-dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .video-none { font-size: 12px; color: var(--dim); font-style: italic; }
+  .btn-video-delete {
+    background: none; border: none; color: var(--border2); font-size: 16px; line-height: 1;
+    padding: 0 0 0 8px; cursor: pointer; transition: color 0.12s; flex-shrink: 0;
+  }
+  .btn-video-delete:hover { color: var(--red); }
+
+  /* Conversion progress */
+  .convert-job {
+    display: flex; flex-direction: column; gap: 8px;
+    background: #080f10; border: 1px solid var(--border2);
+    border-radius: 4px; padding: 12px 14px; font-size: 12px;
+  }
+  .convert-job-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--dim); }
+  .convert-job-name { flex: 1; color: var(--text); }
+  .convert-pct { font-size: 11px; letter-spacing: 1px; color: var(--accent); min-width: 36px; text-align: right; }
+  .convert-bar-track { height: 3px; background: var(--border2); border-radius: 2px; overflow: hidden; }
+  .convert-bar-fill  { height: 100%; width: 0%; background: var(--accent); box-shadow: 0 0 6px var(--accent); transition: width 0.4s linear; }
+  .convert-job.done  .convert-bar-fill { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .convert-job.error .convert-bar-fill { background: var(--red); }
+  .convert-status { font-size: 10px; letter-spacing: 1px; }
+  .convert-job.done  .convert-status { color: var(--green); }
+  .convert-job.error .convert-status { color: var(--red); }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+  .convert-job.uploading .convert-bar-fill {
+    width: 100%; animation: pulse 1.2s ease-in-out infinite;
+    background: var(--dim);  box-shadow: none;
+  }
+  .convert-job.uploading .convert-pct { display: none; }
+
+  /* Upload button */
+  .btn-upload {
+    position: relative; overflow: hidden;
+    background: none; border: 1px solid var(--border2); color: var(--dim);
+    font-family: var(--font); font-size: 10px; letter-spacing: 2px;
+    text-transform: uppercase; padding: 6px 14px; border-radius: 3px;
+    cursor: pointer; transition: border-color 0.15s, color 0.15s; white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .btn-upload:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-upload input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%;
+  }
+
+  /* ── Sentence list ── */
+  .list-header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; margin-bottom: 14px; flex-wrap: wrap;
+  }
+  .filter-bar { display: flex; gap: 0; }
+  .filter-bar button {
+    background: none; border: 1px solid var(--border2); color: var(--dim);
+    font-family: var(--font); font-size: 10px; letter-spacing: 2px;
+    text-transform: uppercase; padding: 6px 14px; cursor: pointer;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .filter-bar button:first-child { border-radius: 3px 0 0 3px; }
+  .filter-bar button:last-child  { border-radius: 0 3px 3px 0; }
+  .filter-bar button:not(:first-child) { border-left: none; }
+  .filter-bar button.active { background: rgba(224,203,106,0.1); border-color: var(--accent); color: var(--accent); }
+
+  .list-meta { font-size: 10px; color: var(--dim); letter-spacing: 1px; }
+
+  /* Selection toolbar */
+  .sel-toolbar {
+    display: none; align-items: center; gap: 14px;
+    background: rgba(74,138,170,0.08); border: 1px solid var(--blue);
+    border-radius: 4px; padding: 8px 14px; margin-bottom: 14px;
+    font-size: 11px; color: var(--blue); letter-spacing: 1px;
+  }
+  .sel-toolbar.visible { display: flex; }
+  .sel-toolbar span { flex: 1; }
+  .btn-sel-all {
+    background: none; border: 1px solid var(--border2); color: var(--dim);
+    font-family: var(--font); font-size: 10px; letter-spacing: 1px;
+    text-transform: uppercase; padding: 4px 10px; border-radius: 3px; cursor: pointer;
+    transition: border-color 0.12s, color 0.12s;
+  }
+  .btn-sel-all:hover { border-color: var(--blue); color: var(--blue); }
+  .btn-bulk-delete {
+    background: none; border: 1px solid var(--red); color: var(--red);
+    font-family: var(--font); font-size: 10px; letter-spacing: 1px;
+    text-transform: uppercase; padding: 4px 10px; border-radius: 3px; cursor: pointer;
+    transition: background 0.12s;
+  }
+  .btn-bulk-delete:hover { background: rgba(224,85,85,0.1); }
+
+  /* Cards */
+  .cards { display: flex; flex-direction: column; gap: 8px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 12px 14px;
+    display: flex; align-items: flex-start; gap: 12px;
+    cursor: pointer; transition: border-color 0.12s, background 0.12s;
+    user-select: none;
+  }
+  .card:hover { border-color: var(--border2); }
+  .card.selected { border-color: var(--blue); background: rgba(74,138,170,0.06); }
+
+  /* Checkbox */
+  .card-check {
+    width: 16px; height: 16px; border-radius: 3px; flex-shrink: 0; margin-top: 2px;
+    border: 1px solid var(--border2); background: #080f10;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  .card.selected .card-check { border-color: var(--blue); background: var(--blue); }
+  .card-check::after {
+    content: ''; display: none;
+    width: 4px; height: 7px; border: 2px solid #000;
+    border-top: none; border-left: none; transform: rotate(40deg) translateY(-1px);
+  }
+  .card.selected .card-check::after { display: block; }
+
+  .card-body { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .card-top  { display: flex; align-items: flex-start; gap: 10px; }
+  .card-text { font-size: 13px; line-height: 1.5; flex: 1; }
+  .card-opts { display: flex; flex-wrap: wrap; gap: 5px; }
+  .opt-chip {
+    font-size: 11px; padding: 2px 7px; border-radius: 3px;
+    border: 1px solid var(--border2); color: var(--dim);
+  }
+  .opt-chip.correct { border-color: var(--green); color: var(--green); }
+
+  .badge {
+    font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+    padding: 2px 6px; border-radius: 2px; white-space: nowrap; flex-shrink: 0;
+  }
+  .badge.trainable { color: var(--accent); border: 1px solid var(--accent); }
+  .badge.nonsense  { color: var(--dim);    border: 1px solid var(--border2); }
+
+  .btn-delete, .btn-edit {
+    background: none; border: none; color: var(--border2);
+    font-family: var(--font); font-size: 14px; line-height: 1;
+    padding: 0 2px; cursor: pointer; flex-shrink: 0;
+    transition: color 0.12s;
+  }
+  .btn-delete:hover { color: var(--red); }
+  .btn-edit:hover   { color: var(--accent); }
+
+  .empty { font-size: 12px; color: var(--dim); letter-spacing: 1px; font-style: italic; padding: 20px 0; }
+
+  /* ── Add form ── */
+  .form-panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 20px; display: flex; flex-direction: column; gap: 16px;
+    position: sticky; top: 20px;
+  }
+  label { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); display: block; margin-bottom: 5px; }
+  input[type=text], textarea {
+    width: 100%; background: #080f10; border: 1px solid var(--border2);
+    color: var(--text); font-family: var(--font); font-size: 13px;
+    padding: 8px 10px; border-radius: 3px; outline: none;
+    transition: border-color 0.15s;
+  }
+  input[type=text]:focus, textarea:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 60px; }
+
+  .type-toggle { display: flex; }
+  .type-toggle button {
+    flex: 1; background: none; border: 1px solid var(--border2);
+    color: var(--dim); font-family: var(--font); font-size: 11px;
+    letter-spacing: 2px; text-transform: uppercase; padding: 8px;
+    cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .type-toggle button:first-child { border-radius: 3px 0 0 3px; }
+  .type-toggle button:last-child  { border-radius: 0 3px 3px 0; border-left: none; }
+  .type-toggle button.active { background: rgba(224,203,106,0.12); border-color: var(--accent); color: var(--accent); }
+
+  .options-grid { display: flex; flex-direction: column; gap: 8px; }
+  .opt-row { display: flex; align-items: center; gap: 8px; }
+  .opt-row input[type=radio] { accent-color: var(--accent); flex-shrink: 0; }
+  .opt-row input[type=text]  { flex: 1; }
+  .nonsense-note { font-size: 10px; color: var(--dim); letter-spacing: 1px; font-style: italic; display: none; }
+
+  .btn-submit {
+    background: rgba(224,203,106,0.1); border: 1px solid var(--accent);
+    color: var(--accent); font-family: var(--font); font-size: 11px;
+    letter-spacing: 2px; text-transform: uppercase; padding: 10px;
+    border-radius: 3px; cursor: pointer; transition: background 0.15s;
+  }
+  .btn-submit:hover { background: rgba(224,203,106,0.2); }
+  .btn-cancel {
+    display: none; background: none; border: 1px solid var(--border2);
+    color: var(--dim); font-family: var(--font); font-size: 11px;
+    letter-spacing: 2px; text-transform: uppercase; padding: 8px;
+    border-radius: 3px; cursor: pointer; transition: border-color 0.15s, color 0.15s;
+  }
+  .btn-cancel:hover { border-color: var(--red); color: var(--red); }
+  .feedback { font-size: 11px; letter-spacing: 1px; min-height: 16px; }
+  .feedback.ok  { color: var(--green); }
+  .feedback.err { color: var(--red); }
+
+  /* ── Game control panel ── */
+  .game-panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 20px; margin-bottom: 32px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .game-panel h2 { margin-bottom: 0; }
+  .game-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .btn-game {
+    background: none; border: 1px solid var(--border2); color: var(--dim);
+    font-family: var(--font); font-size: 10px; letter-spacing: 2px;
+    text-transform: uppercase; padding: 8px 16px; border-radius: 3px;
+    cursor: pointer; transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  .btn-game:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-game.danger:hover { border-color: var(--red); color: var(--red); }
+
+  /* ── Bias admin panel ── */
+  .bias-config-row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .bias-config-row > div { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 160px; }
+  select {
+    width: 100%; background: #080f10; border: 1px solid var(--border2);
+    color: var(--text); font-family: var(--font); font-size: 13px;
+    padding: 8px 10px; border-radius: 3px; outline: none;
+    transition: border-color 0.15s; cursor: pointer;
+  }
+  select:focus { border-color: var(--accent); }
+  .btn-side-toggle { display: flex; }
+  .btn-side-toggle button {
+    flex: 1; background: none; border: 1px solid var(--border2);
+    color: var(--dim); font-family: var(--font); font-size: 11px;
+    letter-spacing: 2px; text-transform: uppercase; padding: 8px;
+    cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .btn-side-toggle button:first-child { border-radius: 3px 0 0 3px; }
+  .btn-side-toggle button:last-child  { border-radius: 0 3px 3px 0; border-left: none; }
+  .btn-side-toggle button.active { background: rgba(74,138,170,0.12); border-color: #4a8aaa; color: #4a8aaa; }
+  .bias-story-form {
+    display: none; flex-direction: column; gap: 12px;
+    border-top: 1px solid var(--border); padding-top: 14px; margin-top: 4px;
+  }
+  .bias-story-form.open { display: flex; }
+  .story-card-audios { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+  .audio-chip {
+    font-size: 10px; padding: 2px 7px; border-radius: 3px;
+    border: 1px solid var(--border2); color: var(--dim); white-space: nowrap;
+  }
+  .audio-chip.story   { border-color: #4a8aaa; color: #4a8aaa; }
+  .audio-chip.correct { border-color: var(--green); color: var(--green); }
+  .audio-chip.wrong   { border-color: var(--red); color: var(--red); }
+  .audio-chip.side    { border-color: var(--accent); color: var(--accent); }
+  .phase-dot.story    { background: #4a8aaa; box-shadow: 0 0 6px #4a8aaa; }
+  .phase-dot.choice   { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .phase-dot.complete { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+  /* ── Live progress ── */
+  .progress-section { display: flex; flex-direction: column; gap: 8px; }
+  .progress-header { display: flex; justify-content: space-between; align-items: center; }
+  .progress-label { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); }
+  .progress-value { font-size: 11px; letter-spacing: 1px; color: var(--text); }
+  .progress-track {
+    height: 6px; background: var(--border2); border-radius: 3px; overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; width: 0%;
+    background: var(--accent); box-shadow: 0 0 8px var(--accent);
+    transition: width 0.5s ease;
+  }
+  .progress-fill.idle   { background: var(--dim); box-shadow: none; }
+  .progress-fill.result { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .phase-dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--dim); margin-right: 6px; vertical-align: middle;
+  }
+  .phase-dot.quiz   { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .phase-dot.result { background: var(--green);  box-shadow: 0 0 6px var(--green); }
+
+  /* ── Dashboard strip ── */
+  .dashboard-strip { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .status-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 16px 20px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .status-card-title { font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: var(--dim); }
+
+  /* ── Collapsible sections ── */
+  .collapsible-section { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; overflow: hidden; }
+  .section-header {
+    display: flex; align-items: center; gap: 10px; padding: 13px 20px;
+    cursor: pointer; background: var(--panel); user-select: none;
+  }
+  .section-header:hover { background: #111b1e; }
+  .section-header h2 { margin: 0; }
+  .section-chevron { font-size: 9px; color: var(--dim); transition: transform 0.2s; flex-shrink: 0; }
+  .section-chevron.open { transform: rotate(90deg); }
+  .section-body { display: none; padding: 20px; border-top: 1px solid var(--border); background: var(--bg); }
+
+  /* ── Sub-collapsibles ── */
+  .sub-collapsible { margin-top: 18px; }
+  .sub-header {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    padding: 5px 0; border-bottom: 1px solid var(--border);
+    margin-bottom: 12px; user-select: none; color: var(--dim);
+  }
+  .sub-header:hover { color: var(--text); }
+  .sub-header span { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; }
+  .sub-chevron { font-size: 8px; transition: transform 0.2s; }
+  .sub-chevron.open { transform: rotate(90deg); }
+  .sub-body { display: none; }
+  .sub-body.open { display: block; }
+
+  /* ── I/O monitor ── */
+  .io-panel { display: flex; flex-direction: column; gap: 6px; }
+  .io-row   { display: flex; gap: 6px; flex-wrap: wrap; }
+  .io-indicator {
+    font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase;
+    padding: 4px 8px; border-radius: 3px; border: 1px solid var(--border2);
+    color: var(--dim); background: #080f10;
+    transition: color 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+    white-space: nowrap;
+  }
+  .io-indicator.active {
+    color: var(--green); border-color: var(--green);
+    background: rgba(62,201,106,0.08); box-shadow: 0 0 6px rgba(62,201,106,0.3);
+  }
+  .io-indicator.active-blue {
+    color: #4a8aaa; border-color: #4a8aaa;
+    background: rgba(74,138,170,0.08); box-shadow: 0 0 6px rgba(74,138,170,0.3);
+  }
+  .io-indicator.active-pump {
+    color: #1a6aff; border-color: #1a6aff;
+    background: rgba(26,106,255,0.1); box-shadow: 0 0 8px rgba(26,106,255,0.4);
+  }
+  /* knob widget */
+  .io-knob-wrap { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 4px; }
+  #io-knob-svg { flex-shrink: 0; }
+  #io-knob-label { font-size: 9px; letter-spacing: 1.5px; }
+  .io-knob-wrap.active-blue #io-knob-g line,
+  .io-knob-wrap.active-blue #io-knob-g circle { stroke: #4a8aaa; fill: #4a8aaa; }
+  .io-knob-wrap.active-blue circle:first-child { stroke: #4a8aaa; }
+  #io-knob-g { transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+  /* participant code rows in status cards */
+  .code-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--border); }
+  .sensitivity-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .sensitivity-row label { margin: 0; white-space: nowrap; }
+  input[type=range].dial-slider { flex: 1; accent-color: var(--accent); cursor: pointer; }
+  .sensitivity-val { font-size: 13px; color: var(--accent); font-family: 'Courier New', monospace; min-width: 32px; text-align: right; }
+  .code-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); }
+  .module-code { font-family: 'Courier New', monospace; font-size: 18px; letter-spacing: 4px; color: var(--green); min-width: 48px; }
+  .code-row input[type=number] { width: 56px; background: #0a1418; border: 1px solid #2a3a40; border-radius: 3px; padding: 3px 6px; color: var(--text); font-size: 11px; }
+  /* digit audio rows */
+  .digit-audio-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+  .digit-label { font-size: 10px; letter-spacing: 1px; color: var(--dim); min-width: 16px; text-align: center; }
+  .digit-file  { font-size: 10px; color: var(--text); flex: 1; }
+</style>
+</head>
+<body>
+
+<h1>OLTC Admin — Zinnen beheren</h1>
+
+<!-- Live status dashboard -->
+<div class="dashboard-strip">
+  <div class="status-card">
+    <div class="status-card-title">Quiz module</div>
+    <div class="progress-section">
+      <div class="progress-header">
+        <span class="progress-label"><span class="phase-dot" id="phase-dot"></span>Voortgang deelnemer</span>
+        <span class="progress-value" id="progress-value">—</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill idle" id="progress-fill"></div></div>
+    </div>
+    <div class="io-panel">
+      <div class="io-row">
+        <div class="io-indicator" id="io-mode-input" title="Input data modus">INPUT DATA</div>
+        <div class="io-indicator" id="io-mode-test"  title="Test model modus">TEST MODEL</div>
+        <div class="io-indicator io-knob-wrap" id="io-encoder" title="Draaischijf">
+          <svg id="io-knob-svg" width="28" height="28" viewBox="0 0 28 28">
+            <circle cx="14" cy="14" r="12" fill="#0d1a1c" stroke="var(--border2)" stroke-width="1.5"/>
+            <circle cx="14" cy="14" r="9"  fill="none"    stroke="#1e3038"        stroke-width="1"/>
+            <g id="io-knob-g">
+              <line x1="14" y1="14" x2="14" y2="5" stroke="var(--dim)" stroke-width="1.5" stroke-linecap="round"/>
+              <circle cx="14" cy="6" r="1.5" fill="var(--dim)"/>
+            </g>
+          </svg>
+          <span id="io-knob-label">DRAAISCHIJF</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <button class="btn-game danger" onclick="resetGame()">↺ Reset game</button>
+      <div class="feedback" id="game-feedback" style="margin-top:6px"></div>
+    </div>
+  </div>
+  <div class="status-card">
+    <div class="status-card-title">Bias module</div>
+    <div class="progress-section">
+      <div class="progress-header">
+        <span class="progress-label"><span class="phase-dot" id="bias-phase-dot"></span>Status deelnemer</span>
+        <span class="progress-value" id="bias-progress-value">—</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill idle" id="bias-progress-fill"></div></div>
+    </div>
+    <div class="io-panel">
+      <div class="io-row">
+        <div class="io-indicator" id="io-sensor" title="Afstandssensor">SENSOR —</div>
+      </div>
+      <div class="io-row">
+        <div class="io-indicator" id="io-btn-left"  title="Links knop">← LINKS</div>
+        <div class="io-indicator" id="io-btn-right" title="Rechts knop">RECHTS →</div>
+        <div class="io-indicator" id="io-pump"      title="Waterpomp">POMP</div>
+      </div>
+    </div>
+    <div>
+      <button class="btn-game danger" onclick="resetBiasModule()">↺ Reset bias</button>
+      <div class="feedback" id="bias-reset-feedback" style="margin-top:6px"></div>
+    </div>
+  </div>
+  <div class="status-card">
+    <div class="status-card-title">Pump module</div>
+    <div class="io-panel">
+      <div class="io-row">
+        <div class="io-indicator" id="io-pump-high" title="Bovenste sensor">↑ HOOG</div>
+        <div class="io-indicator" id="io-pump-low"  title="Onderste sensor">↓ LAAG</div>
+        <div class="io-indicator" id="io-pump-cheat" title="Cheat knop">CHEAT</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Actieve sessies -->
+<div class="collapsible-section" style="margin-top:10px">
+  <div class="section-header" onclick="toggleSection('sessies')">
+    <span class="section-chevron" id="chevron-sessies">▶</span>
+    <h2>Actieve sessies</h2>
+  </div>
+  <div class="section-body" id="body-sessies">
+    <table style="font-family:monospace;font-size:13px;border-collapse:collapse;width:100%">
+      <thead><tr>
+        <th style="text-align:left;padding:4px 8px;opacity:.5">#</th>
+        <th style="text-align:left;padding:4px 8px;opacity:.5">M1</th>
+        <th style="text-align:left;padding:4px 8px;opacity:.5">M2</th>
+        <th style="text-align:left;padding:4px 8px;opacity:.5">M3</th>
+      </tr></thead>
+      <tbody id="sessions-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Bias module -->
+<div class="collapsible-section">
+  <div class="section-header" onclick="toggleSection('bias')">
+    <span class="section-chevron" id="chevron-bias">▶</span>
+    <h2>Bias module</h2>
+  </div>
+  <div class="section-body" id="body-bias">
+
+    <!-- Config (always visible inside section) -->
+    <div class="bias-config-row">
+      <div>
+        <label>Start audio</label>
+        <select id="bias-start-select"><option value="">— geen —</option></select>
+      </div>
+      <div>
+        <label>Midden correct audio</label>
+        <select id="bias-middle-correct-select"><option value="">— geen —</option></select>
+      </div>
+      <div>
+        <label>Fout audio</label>
+        <select id="bias-wrong-select"><option value="">— geen —</option></select>
+      </div>
+      <div>
+        <label>Eerste goed, tweede fout audio</label>
+        <select id="bias-second-wrong-select"><option value="">— geen —</option></select>
+      </div>
+      <div>
+        <label>Eind audio</label>
+        <select id="bias-final-select"><option value="">— geen —</option></select>
+      </div>
+      <div>
+        <label>Sensor bereik</label>
+        <div style="display:flex; gap:6px; align-items:center">
+          <input type="number" id="bias-sensor-min" style="width:64px; background:#0a1418; border:1px solid #2a3a40; border-radius:3px; padding:4px 6px; color:#ccd6db; font-size:11px" placeholder="0">
+          <span style="color:#4a6070; font-size:11px">–</span>
+          <input type="number" id="bias-sensor-max" style="width:64px; background:#0a1418; border:1px solid #2a3a40; border-radius:3px; padding:4px 6px; color:#ccd6db; font-size:11px" placeholder="1023">
+        </div>
+      </div>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center; margin-top:10px">
+      <button class="btn-game" onclick="saveBiasConfig()">Opslaan config</button>
+      <div class="feedback" id="bias-config-feedback" style="margin:0"></div>
+    </div>
+
+    <!-- Sub: Audio bestanden -->
+    <div class="sub-collapsible">
+      <div class="sub-header" onclick="toggleSubSection('audio')">
+        <span class="sub-chevron" id="subchevron-audio">▶</span>
+        <span>Audio bestanden</span>
+        <label class="btn-upload" style="margin-left:auto; font-size:9px; padding:4px 10px" onclick="event.stopPropagation()">
+          + Uploaden
+          <input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadAudio(this)">
+        </label>
+      </div>
+      <div class="sub-body" id="subbody-audio">
+        <div id="audio-file-list" style="display:flex; flex-direction:column; gap:4px"></div>
+      </div>
+    </div>
+
+    <!-- Sub: Cijfer-audio -->
+    <div class="sub-collapsible">
+      <div class="sub-header" onclick="toggleSubSection('bias-cijfers')">
+        <span class="sub-chevron" id="subchevron-bias-cijfers">▶</span>
+        <span>Cijfer-audio (0–9)</span>
+      </div>
+      <div class="sub-body" id="subbody-bias-cijfers">
+        <p style="font-size:10px; color:var(--dim); margin:0 0 10px">Upload een audiobestand per cijfer. Wordt afgespeeld bij het tonen van de deelnemer­code na een overwinning.</p>
+        <div id="digit-audio-list"></div>
+      </div>
+    </div>
+
+    <!-- Sub: Verhalen -->
+    <div class="sub-collapsible">
+      <div class="sub-header" onclick="toggleSubSection('verhalen')">
+        <span class="sub-chevron" id="subchevron-verhalen">▶</span>
+        <span>Verhalen</span>
+        <button class="btn-game" style="margin-left:auto; font-size:9px; padding:4px 10px" onclick="event.stopPropagation(); openBiasStoryForm()">+ Toevoegen</button>
+      </div>
+      <div class="sub-body" id="subbody-verhalen">
+        <div class="cards" id="bias-story-cards"></div>
+        <div class="bias-story-form" id="bias-story-form">
+          <div>
+            <label>Naam</label>
+            <input type="text" id="bsf-name" placeholder="Verhaal 1">
+          </div>
+          <div>
+            <label>Verhaal audio</label>
+            <select id="bsf-story"><option value="">— kies bestand —</option></select>
+          </div>
+          <div>
+            <label>Correct knop</label>
+            <div class="btn-side-toggle">
+              <button id="bsf-left"  class="active" onclick="setBiasSide('left')">← Links</button>
+              <button id="bsf-right"              onclick="setBiasSide('right')">Rechts →</button>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center">
+            <button class="btn-submit" id="bsf-submit" onclick="submitBiasStory()">Toevoegen</button>
+            <button class="btn-cancel" style="display:block" onclick="closeBiasStoryForm()">Annuleren</button>
+          </div>
+          <div class="feedback" id="bias-story-feedback"></div>
+        </div>
+        <div class="feedback" id="bias-feedback"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Pump module -->
+<div class="collapsible-section">
+  <div class="section-header" onclick="toggleSection('pump')">
+    <span class="section-chevron" id="chevron-pump">▶</span>
+    <h2>Pump module</h2>
+  </div>
+  <div class="section-body" id="body-pump">
+
+    <!-- Config -->
+    <div class="bias-config-row">
+      <div>
+        <label>Pompen vereist per woord</label>
+        <input type="number" id="pump-required" min="1" max="50" value="8" style="width:80px; background:#0a1418; border:1px solid #2a3a40; border-radius:3px; padding:4px 6px; color:#ccd6db; font-size:11px">
+      </div>
+      <div>
+        <label>Woordduur (ms)</label>
+        <input type="number" id="pump-word-duration" min="500" max="10000" step="100" value="3000" style="width:90px; background:#0a1418; border:1px solid #2a3a40; border-radius:3px; padding:4px 6px; color:#ccd6db; font-size:11px">
+      </div>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center; margin-top:10px">
+      <button class="btn-game" onclick="savePumpConfig()">Opslaan config</button>
+      <div class="feedback" id="pump-config-feedback" style="margin:0"></div>
+    </div>
+
+    <!-- Sub: Woorden -->
+    <div class="sub-collapsible">
+      <div class="sub-header" onclick="toggleSubSection('pump-woorden')">
+        <span class="sub-chevron" id="subchevron-pump-woorden">▶</span>
+        <span>Woorden</span>
+      </div>
+      <div class="sub-body" id="subbody-pump-woorden">
+        <div id="pump-word-list" style="display:flex; flex-direction:column; gap:6px; margin-bottom:12px"></div>
+        <!-- Add word form -->
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+          <input type="text" id="pump-word-input" placeholder="Woord..." style="width:140px">
+          <div class="btn-side-toggle" style="flex-shrink:0">
+            <button id="pump-correct-btn" class="active" onclick="setPumpWordType(true)">✓ Correct</button>
+            <button id="pump-wrong-btn"               onclick="setPumpWordType(false)">✗ Fout</button>
+          </div>
+          <button class="btn-game" onclick="addPumpWord()">+ Toevoegen</button>
+        </div>
+        <div class="feedback" id="pump-word-feedback" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Video -->
+<div class="collapsible-section">
+  <div class="section-header" onclick="toggleSection('video')">
+    <span class="section-chevron" id="chevron-video">▶</span>
+    <h2>Video</h2>
+  </div>
+  <div class="section-body" id="body-video">
+    <!-- Exam URL -->
+    <div class="sensitivity-row">
+      <label>Certificaat URL (voor QR-code)</label>
+      <input type="text" id="exam-url-input" placeholder="https://jouw-app.netlify.app"
+             style="flex:1;background:#080f10;border:1px solid var(--border2);border-radius:3px;padding:5px 8px;color:var(--text);font-size:12px;font-family:var(--font)"
+             oninput="updateExamUrl(this.value)">
+    </div>
+
+    <!-- Dial sensitivity (data-input mode) -->
+    <div class="sensitivity-row">
+      <label>Draaiknop snelheid (data-invoer)</label>
+      <input type="range" class="dial-slider" id="dial-sensitivity-slider"
+             min="0.01" max="3" step="0.01" value="0.5"
+             oninput="updateDialSensitivity(this.value)">
+      <span class="sensitivity-val" id="dial-sensitivity-val">0.5×</span>
+    </div>
+
+    <div class="video-header">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <label class="btn-upload">
+          + WebM uploaden
+          <input type="file" accept=".webm,.ogg" onchange="uploadVideo(this)">
+        </label>
+        <label class="btn-upload">
+          ⇄ MP4/MOV converteren
+          <input type="file" accept=".mp4,.mov,.mpeg4" onchange="convertVideo(this)">
+        </label>
+      </div>
+    </div>
+    <div class="video-grid" id="video-grid" style="margin-top:14px">
+      <span class="video-none">Videobestanden laden…</span>
+    </div>
+    <div id="convert-jobs"></div>
+    <div class="feedback" id="video-feedback"></div>
+  </div>
+</div>
+
+<!-- Quiz vragen -->
+<div class="collapsible-section">
+  <div class="section-header" onclick="toggleSection('quiz')">
+    <span class="section-chevron" id="chevron-quiz">▶</span>
+    <h2>Quiz vragen</h2>
+  </div>
+  <div class="section-body" id="body-quiz">
+    <!-- Quiz dial speed -->
+    <div class="sensitivity-row" style="padding:16px 20px 0">
+      <label>Draaiknop snelheid (woordkeuze)</label>
+      <input type="range" class="dial-slider" id="quiz-sensitivity-slider"
+             min="10" max="1080" step="10" value="360"
+             oninput="updateQuizSensitivity(this.value)">
+      <span class="sensitivity-val" id="quiz-sensitivity-val">360°</span>
+    </div>
+
+    <div class="layout">
+
+      <!-- Sentence list -->
+      <div>
+        <div class="list-header">
+          <div class="filter-bar">
+            <button class="active" onclick="setFilter('all',this)">Alle</button>
+            <button onclick="setFilter('trainable',this)">Zinvol</button>
+            <button onclick="setFilter('nonsense',this)">Onzin</button>
+          </div>
+          <span class="list-meta" id="list-meta"></span>
+        </div>
+        <div class="sel-toolbar" id="sel-toolbar">
+          <span id="sel-count"></span>
+          <button class="btn-sel-all" onclick="toggleSelectAll()">Alles selecteren</button>
+          <button class="btn-bulk-delete" onclick="deleteSelected()">Verwijder geselecteerd</button>
+        </div>
+        <div class="cards" id="cards"></div>
+      </div>
+
+      <!-- Add / Edit form -->
+      <div class="form-panel">
+        <h2 id="form-title">Zin toevoegen</h2>
+        <div>
+          <label>Type</label>
+          <div class="type-toggle">
+            <button id="btn-trainable" class="active" onclick="setType('trainable')">Zinvol</button>
+            <button id="btn-nonsense"              onclick="setType('nonsense')">Onzin</button>
+          </div>
+        </div>
+        <div>
+          <label>Zin (gebruik ___ voor het lege vak)</label>
+          <textarea id="inp-text" placeholder="De zon gaat onder in het ___"></textarea>
+        </div>
+        <div>
+          <label>Antwoordopties</label>
+          <p class="nonsense-note" id="nonsense-note">Bij onzin zijn alle opties automatisch correct.</p>
+          <div class="options-grid" id="opts-grid">
+            <div class="opt-row"><input type="radio" name="correct" value="0" checked><input type="text" class="opt-inp" placeholder="Optie 1"></div>
+            <div class="opt-row"><input type="radio" name="correct" value="1"><input type="text" class="opt-inp" placeholder="Optie 2"></div>
+            <div class="opt-row"><input type="radio" name="correct" value="2"><input type="text" class="opt-inp" placeholder="Optie 3"></div>
+            <div class="opt-row"><input type="radio" name="correct" value="3"><input type="text" class="opt-inp" placeholder="Optie 4"></div>
+          </div>
+        </div>
+        <button class="btn-submit" id="btn-submit" onclick="submitSentence()">Toevoegen</button>
+        <button class="btn-cancel" id="btn-cancel" onclick="cancelEdit()">Annuleren</button>
+        <div class="feedback" id="feedback"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let allSentences = [];   // flat array of all sentences
+let activeFilter = 'all';
+let selected     = new Set(); // selected sentence IDs
+let currentType  = 'trainable';
+let editingId    = null;      // sentence id being edited, or null (add mode)
+
+// ── Filter ────────────────────────────────────────────────────────────────────
+function setFilter(f, btn) {
+  activeFilter = f;
+  document.querySelectorAll('.filter-bar button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  selected.clear();
+  renderList();
+}
+
+function filtered() {
+  if (activeFilter === 'all') return allSentences;
+  return allSentences.filter(s => s.type === activeFilter);
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderList() {
+  const list   = filtered();
+  const $cards = document.getElementById('cards');
+  $cards.innerHTML = '';
+
+  const total  = allSentences.length;
+  const tCount = allSentences.filter(s => s.type === 'trainable').length;
+  const nCount = allSentences.filter(s => s.type === 'nonsense').length;
+  document.getElementById('list-meta').textContent =
+    `${total} totaal — ${tCount} zinvol / ${nCount} onzin`;
+
+  if (list.length === 0) {
+    $cards.innerHTML = '<p class="empty">Geen zinnen gevonden.</p>';
+    updateToolbar();
+    return;
+  }
+
+  list.forEach(s => $cards.appendChild(buildCard(s)));
+  updateToolbar();
+}
+
+function buildCard(s) {
+  const card = document.createElement('div');
+  card.className = 'card' + (selected.has(s.id) ? ' selected' : '');
+  card.dataset.id = s.id;
+  card.onclick = (e) => {
+    // Don't toggle if clicking the delete button
+    if (e.target.closest('.btn-delete')) return;
+    toggleSelect(s.id, card);
+  };
+
+  const check = document.createElement('div');
+  check.className = 'card-check';
+
+  const body = document.createElement('div');
+  body.className = 'card-body';
+
+  const top = document.createElement('div');
+  top.className = 'card-top';
+
+  const txt = document.createElement('div');
+  txt.className = 'card-text';
+  txt.textContent = s.text;
+
+  const badge = document.createElement('span');
+  badge.className = 'badge ' + s.type;
+  badge.textContent = s.type === 'trainable' ? 'Zinvol' : 'Onzin';
+
+  const edit = document.createElement('button');
+  edit.className = 'btn-edit';
+  edit.title = 'Bewerken';
+  edit.innerHTML = '✎';
+  edit.onclick = (e) => { e.stopPropagation(); openEdit(s); };
+
+  const del = document.createElement('button');
+  del.className = 'btn-delete';
+  del.title = 'Verwijder';
+  del.textContent = '×';
+  del.onclick = (e) => { e.stopPropagation(); deleteSentence(s.id); };
+
+  top.append(txt, badge, edit, del);
+
+  const opts = document.createElement('div');
+  opts.className = 'card-opts';
+  s.options.forEach(o => {
+    const chip = document.createElement('span');
+    chip.className = 'opt-chip' + (o.correct ? ' correct' : '');
+    chip.textContent = o.text;
+    opts.appendChild(chip);
+  });
+
+  body.append(top, opts);
+  card.append(check, body);
+  return card;
+}
+
+// ── Selection ─────────────────────────────────────────────────────────────────
+function toggleSelect(id, card) {
+  if (selected.has(id)) { selected.delete(id); card.classList.remove('selected'); }
+  else                  { selected.add(id);    card.classList.add('selected'); }
+  updateToolbar();
+}
+
+function toggleSelectAll() {
+  const list = filtered();
+  const allSel = list.every(s => selected.has(s.id));
+  if (allSel) { list.forEach(s => selected.delete(s.id)); }
+  else        { list.forEach(s => selected.add(s.id)); }
+  renderList();
+}
+
+function updateToolbar() {
+  const toolbar = document.getElementById('sel-toolbar');
+  const count   = document.getElementById('sel-count');
+  const allSel  = filtered().every(s => selected.has(s.id)) && filtered().length > 0;
+  toolbar.classList.toggle('visible', selected.size > 0);
+  count.textContent = `${selected.size} geselecteerd`;
+  document.querySelector('.btn-sel-all').textContent = allSel ? 'Alles deselecteren' : 'Alles selecteren';
+}
+
+// ── Load ──────────────────────────────────────────────────────────────────────
+async function loadSentences() {
+  const res  = await fetch('/api/sentences');
+  const data = await res.json();
+  allSentences = [
+    ...data.trainable.map(s => ({ ...s, type: 'trainable' })),
+    ...data.nonsense.map(s  => ({ ...s, type: 'nonsense'  })),
+  ];
+  selected.clear();
+  renderList();
+}
+
+// ── Delete ────────────────────────────────────────────────────────────────────
+async function deleteSentence(id) {
+  const res = await fetch('/api/sentences/' + id, { method: 'DELETE' });
+  if (res.ok) { selected.delete(id); await loadSentences(); }
+  else showFeedback('Verwijderen mislukt.', false);
+}
+
+async function deleteSelected() {
+  if (selected.size === 0) return;
+  if (!confirm(`${selected.size} zin(nen) verwijderen?`)) return;
+  await Promise.all([...selected].map(id =>
+    fetch('/api/sentences/' + id, { method: 'DELETE' })
+  ));
+  selected.clear();
+  await loadSentences();
+}
+
+// ── Edit form ─────────────────────────────────────────────────────────────────
+function openEdit(s) {
+  editingId = s.id;
+  document.getElementById('form-title').textContent = 'Zin bewerken';
+  document.getElementById('btn-submit').textContent = 'Opslaan';
+  document.getElementById('btn-cancel').style.display = 'block';
+  document.getElementById('inp-text').value = s.text;
+  setType(s.type);
+  const inputs = document.querySelectorAll('.opt-inp');
+  s.options.forEach((o, i) => { if (inputs[i]) inputs[i].value = o.text; });
+  if (s.type === 'trainable') {
+    const correctIdx = s.options.findIndex(o => o.correct);
+    const radios = document.querySelectorAll('input[name=correct]');
+    if (radios[correctIdx]) radios[correctIdx].checked = true;
+  }
+  document.querySelector('.form-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function cancelEdit() {
+  editingId = null;
+  document.getElementById('form-title').textContent = 'Zin toevoegen';
+  document.getElementById('btn-submit').textContent = 'Toevoegen';
+  document.getElementById('btn-cancel').style.display = 'none';
+  document.getElementById('inp-text').value = '';
+  document.querySelectorAll('.opt-inp').forEach(i => i.value = '');
+  document.querySelector('input[name=correct][value="0"]').checked = true;
+  setType('trainable');
+  document.getElementById('feedback').textContent = '';
+  document.getElementById('feedback').className = 'feedback';
+}
+
+// ── Add form ──────────────────────────────────────────────────────────────────
+function setType(t) {
+  currentType = t;
+  document.getElementById('btn-trainable').classList.toggle('active', t === 'trainable');
+  document.getElementById('btn-nonsense').classList.toggle('active',  t === 'nonsense');
+  document.getElementById('nonsense-note').style.display = t === 'nonsense' ? 'block' : 'none';
+  document.querySelectorAll('.opt-row input[type=radio]').forEach(r => {
+    r.style.display = t === 'trainable' ? '' : 'none';
+  });
+}
+
+async function submitSentence() {
+  const text = document.getElementById('inp-text').value.trim();
+  const opts = [...document.querySelectorAll('.opt-inp')].map(i => i.value.trim());
+  const correctIdx = currentType === 'nonsense' ? -1 :
+    parseInt(document.querySelector('input[name=correct]:checked')?.value ?? '0');
+
+  if (!text.includes('___')) { showFeedback('Zin moet ___ bevatten.', false); return; }
+  if (opts.some(o => !o))    { showFeedback('Vul alle 4 opties in.', false); return; }
+
+  const options = opts.map((t, i) => ({
+    text: t,
+    correct: currentType === 'nonsense' ? true : i === correctIdx,
+  }));
+
+  if (editingId !== null) {
+    const res = await fetch('/api/sentences/' + editingId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, type: currentType, options }),
+    });
+    if (res.ok) {
+      showFeedback('Wijzigingen opgeslagen.', true);
+      cancelEdit();
+      loadSentences();
+    } else {
+      showFeedback('Opslaan mislukt.', false);
+    }
+    return;
+  }
+
+  const res = await fetch('/api/sentences', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, type: currentType, options }),
+  });
+
+  if (res.ok) {
+    showFeedback('feedback', 'Zin toegevoegd.', true);
+    document.getElementById('inp-text').value = '';
+    document.querySelectorAll('.opt-inp').forEach(i => i.value = '');
+    document.querySelector('input[name=correct][value="0"]').checked = true;
+    loadSentences();
+  } else {
+    showFeedback('feedback', 'Opslaan mislukt.', false);
+  }
+}
+
+function showFeedback(elId, msg, ok, delay = 3000) {
+  const el = document.getElementById(elId);
+  el.textContent = msg;
+  el.className = 'feedback ' + (ok ? 'ok' : 'err');
+  setTimeout(() => { el.textContent = ''; el.className = 'feedback'; }, delay);
+}
+
+// ── Dial sensitivity ──────────────────────────────────────────────────────────
+async function loadDialSensitivity() {
+  const settings = await fetch('/api/settings').then(r => r.json()).catch(() => ({}));
+  const val = parseFloat(settings.dial_sensitivity || '0.5');
+  document.getElementById('dial-sensitivity-slider').value = val;
+  document.getElementById('dial-sensitivity-val').textContent = val.toFixed(2) + '×';
+}
+
+async function updateDialSensitivity(val) {
+  document.getElementById('dial-sensitivity-val').textContent = parseFloat(val).toFixed(2) + '×';
+  await fetch('/api/settings/dial_sensitivity', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: val }),
+  });
+}
+
+// ── Exam URL ──────────────────────────────────────────────────────────────────
+async function loadExamUrl() {
+  const settings = await fetch('/api/settings').then(r => r.json()).catch(() => ({}));
+  document.getElementById('exam-url-input').value = settings.exam_url || '';
+}
+
+async function updateExamUrl(val) {
+  await fetch('/api/settings/exam_url', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: val }),
+  });
+}
+
+// ── Quiz dial sensitivity ─────────────────────────────────────────────────────
+const QUIZ_SLIDER_MIN = 10, QUIZ_SLIDER_MAX = 1080;
+
+async function loadQuizSensitivity() {
+  const settings = await fetch('/api/settings').then(r => r.json()).catch(() => ({}));
+  const stored = parseInt(settings.quiz_sensitivity || '360');
+  const sliderVal = QUIZ_SLIDER_MIN + QUIZ_SLIDER_MAX - stored; // invert: right = faster
+  document.getElementById('quiz-sensitivity-slider').value = sliderVal;
+  document.getElementById('quiz-sensitivity-val').textContent = stored + '°';
+}
+
+async function updateQuizSensitivity(sliderVal) {
+  const stored = QUIZ_SLIDER_MIN + QUIZ_SLIDER_MAX - parseInt(sliderVal); // invert
+  document.getElementById('quiz-sensitivity-val').textContent = stored + '°';
+  await fetch('/api/settings/quiz_sensitivity', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: stored }),
+  });
+}
+
+// ── Video ─────────────────────────────────────────────────────────────────────
+async function loadVideos() {
+  const res  = await fetch('/api/videos');
+  const data = await res.json();
+  const grid = document.getElementById('video-grid');
+  grid.innerHTML = '';
+
+  if (data.files.length === 0) {
+    grid.innerHTML = '<span class="video-none">Geen videobestanden gevonden. Upload er een via de knop hierboven.</span>';
+    return;
+  }
+
+  data.files.forEach(f => {
+    const card = document.createElement('div');
+    card.className = 'video-card' + (f === data.active ? ' active' : '');
+    card.innerHTML = `<div class="video-dot"></div><span style="flex:1">${f}</span>`;
+    card.onclick = () => setVideo(f);
+
+    const del = document.createElement('button');
+    del.className = 'btn-video-delete';
+    del.title = 'Verwijder videobestand';
+    del.textContent = '×';
+    del.onclick = e => { e.stopPropagation(); deleteVideo(f); };
+    card.appendChild(del);
+
+    grid.appendChild(card);
+  });
+}
+
+async function deleteVideo(filename) {
+  if (!confirm(`"${filename}" verwijderen van de schijf?`)) return;
+  const res = await fetch('/api/videos/' + encodeURIComponent(filename), { method: 'DELETE' });
+  if (res.ok) { showVideoFeedback('Verwijderd: ' + filename, true); loadVideos(); }
+  else showVideoFeedback('Verwijderen mislukt.', false);
+}
+
+async function setVideo(filename) {
+  const res = await fetch('/api/settings/video', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename }),
+  });
+  if (res.ok) {
+    showVideoFeedback('Actief: ' + filename, true);
+    loadVideos();
+  } else {
+    showVideoFeedback('Instellen mislukt.', false);
+  }
+}
+
+async function uploadVideo(input) {
+  const file = input.files[0];
+  if (!file) return;
+  showVideoFeedback('Uploaden…', true);
+  const form = new FormData();
+  form.append('video', file);
+  const res = await fetch('/api/videos/upload', { method: 'POST', body: form });
+  input.value = '';
+  if (res.ok) {
+    const data = await res.json();
+    showVideoFeedback('Geüpload: ' + data.filename, true);
+    loadVideos();
+  } else {
+    showVideoFeedback('Upload mislukt.', false);
+  }
+}
+
+async function convertVideo(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+
+  const baseName = file.name.replace(/\.[^.]+$/, '') + '.webm';
+  const $jobs = document.getElementById('convert-jobs');
+
+  // Show card immediately while uploading
+  const card = document.createElement('div');
+  card.className = 'convert-job uploading';
+  card.innerHTML = `
+    <div class="convert-job-top">
+      <span class="convert-job-name">${baseName}</span>
+      <span class="convert-pct" id="pct-pending">—</span>
+    </div>
+    <div class="convert-bar-track"><div class="convert-bar-fill"></div></div>
+    <div class="convert-status">Bestand uploaden…</div>
+  `;
+  $jobs.appendChild(card);
+
+  // Upload + start conversion
+  const form = new FormData();
+  form.append('video', file);
+  const res = await fetch('/api/videos/convert', { method: 'POST', body: form });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    card.classList.replace('uploading', 'error');
+    card.querySelector('.convert-status').textContent = err.error || 'Conversie starten mislukt.';
+    return;
+  }
+
+  const { jobId, filename } = await res.json();
+
+  // Update card with real IDs now that we have a jobId
+  card.classList.remove('uploading');
+  card.querySelector('.convert-job-name').textContent = filename;
+  card.querySelector('.convert-pct').id     = `pct-${jobId}`;
+  card.querySelector('.convert-bar-fill').id = `bar-${jobId}`;
+  card.querySelector('.convert-status').id   = `status-${jobId}`;
+  card.querySelector(`#status-${jobId}`).textContent = 'Converteren… 0%';
+
+  // Poll until done
+  const poll = setInterval(async () => {
+    const r   = await fetch('/api/videos/convert/' + jobId);
+    const job = await r.json();
+    const pct = job.progress + '%';
+
+    document.getElementById(`pct-${jobId}`).textContent = pct;
+    document.getElementById(`bar-${jobId}`).style.width = pct;
+
+    if (job.status === 'done') {
+      clearInterval(poll);
+      card.classList.add('done');
+      document.getElementById(`status-${jobId}`).textContent = 'Klaar!';
+      loadVideos();
+      setTimeout(() => card.remove(), 6000);
+    } else if (job.status === 'error') {
+      clearInterval(poll);
+      card.classList.add('error');
+      document.getElementById(`status-${jobId}`).textContent = 'Fout tijdens conversie.';
+    } else {
+      document.getElementById(`status-${jobId}`).textContent = `Converteren… ${pct}`;
+    }
+  }, 1000);
+}
+
+function showVideoFeedback(msg, ok) { showFeedback('video-feedback', msg, ok, 4000); }
+
+// ── Live progress polling ──────────────────────────────────────────────────────
+async function pollProgress() {
+  try {
+    const res  = await fetch('/api/game/progress');
+    const data = await res.json();
+    const { phase, mastered, total } = data;
+
+    const dot  = document.getElementById('phase-dot');
+    const fill = document.getElementById('progress-fill');
+    const val  = document.getElementById('progress-value');
+
+    dot.className  = 'phase-dot ' + phase;
+    fill.className = 'progress-fill ' + phase;
+
+    if (total > 0) {
+      fill.style.width = (mastered / total * 100) + '%';
+      val.textContent  = phase === 'idle'
+        ? 'Wacht op deelnemer…'
+        : `${mastered} / ${total} gemeesterd`;
+    } else {
+      fill.style.width = '0%';
+      val.textContent  = 'Wacht op deelnemer…';
+    }
+  } catch { /* server unreachable */ }
+}
+
+const _pollProgressInterval = setInterval(pollProgress, 2000);
+pollProgress();
+
+// ── Game control ──────────────────────────────────────────────────────────────
+async function resetGame() {
+  const res = await fetch('/api/game/reset', { method: 'POST' });
+  if (res.ok) {
+    showGameFeedback('Game gereset — hoofdscherm herstelt binnen 3 seconden.', true);
+  } else {
+    showGameFeedback('Reset mislukt.', false);
+  }
+}
+
+function showGameFeedback(msg, ok) { showFeedback('game-feedback', msg, ok, 4000); }
+
+// ── Bias admin ────────────────────────────────────────────────────────────────
+let allAudioFiles   = [];
+let biasStoryEditId = null;
+let biasSide        = 'left';
+
+// ── Bias progress polling ─────────────────────────────────────────────────────
+const BIAS_STATE_LABELS = {
+  idle:     'Wacht op deelnemer…',
+  intro:    'Intro speelt',
+  story:    'Verhaal speelt',
+  choice:   'Keuze maken',
+  feedback: 'Reactie speelt',
+  complete: 'Eindbericht speelt',
+};
+
+async function pollBiasProgress() {
+  try {
+    const res  = await fetch('/api/bias/progress');
+    const data = await res.json();
+    const { state, streak, storyName } = data;
+
+    const dot  = document.getElementById('bias-phase-dot');
+    const fill = document.getElementById('bias-progress-fill');
+    const val  = document.getElementById('bias-progress-value');
+
+    dot.className  = 'phase-dot ' + state;
+    fill.className = 'progress-fill ' + (state === 'complete' ? 'result' : state === 'idle' ? 'idle' : '');
+    fill.style.width = (streak / 2 * 100) + '%';
+
+    let label = BIAS_STATE_LABELS[state] ?? state;
+    if (storyName && state !== 'idle') label += ' — ' + storyName;
+    val.textContent = label;
+  } catch { /* ignore */ }
+}
+
+const _pollBiasProgressInterval = setInterval(pollBiasProgress, 2000);
+pollBiasProgress();
+
+// ── Bias reset ────────────────────────────────────────────────────────────────
+async function resetBiasModule() {
+  const res = await fetch('/api/bias/reset', { method: 'POST' });
+  showFeedback('bias-reset-feedback', res.ok ? 'Bias gereset.' : 'Reset mislukt.', res.ok);
+}
+
+// ── Audio "Toevoegen…" dropdown logic ────────────────────────────────────────
+let pendingAudioSelectId = null;
+const hiddenAudioInput = Object.assign(document.createElement('input'), {
+  type: 'file', accept: '.mp3,.wav,.ogg,.m4a',
+});
+hiddenAudioInput.style.display = 'none';
+document.body.appendChild(hiddenAudioInput);
+
+hiddenAudioInput.addEventListener('change', async () => {
+  const file = hiddenAudioInput.files[0];
+  const targetId = pendingAudioSelectId;
+  hiddenAudioInput.value = '';
+  pendingAudioSelectId = null;
+  if (!file) return;
+  const form = new FormData();
+  form.append('audio', file);
+  const res = await fetch('/api/audio/upload', { method: 'POST', body: form });
+  if (res.ok) {
+    const data = await res.json();
+    await loadAudio();
+    if (targetId) document.getElementById(targetId).value = data.filename;
+    showBiasFeedback('Geüpload: ' + data.filename, true);
+  } else {
+    showBiasFeedback('Upload mislukt.', false);
+  }
+});
+
+const AUDIO_SELECT_IDS = ['bias-start-select','bias-middle-correct-select','bias-wrong-select','bias-second-wrong-select','bias-final-select','bsf-story'];
+
+function setupAudioSelectListeners() {
+  AUDIO_SELECT_IDS.forEach(id => {
+    document.getElementById(id).addEventListener('change', function() {
+      if (this.value === '__add__') {
+        this.value = '';
+        pendingAudioSelectId = id;
+        hiddenAudioInput.click();
+      }
+    });
+  });
+}
+
+async function loadAudio() {
+  const res  = await fetch('/api/audio');
+  const data = await res.json();
+  allAudioFiles = data.files;
+
+  // Render audio file list with duplicate + delete actions
+  const list = document.getElementById('audio-file-list');
+  list.innerHTML = allAudioFiles.map(f => `
+    <div style="display:flex; justify-content:space-between; align-items:center; background:#0a1418; border:1px solid #1a2a30; border-radius:3px; padding:5px 10px; font-size:11px; color:#8aa0a8">
+      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1">${f}</span>
+      <div style="display:flex; gap:6px; flex-shrink:0; margin-left:8px">
+        <button onclick="duplicateAudio('${f}')" style="background:none; border:none; color:#4a8aaa; cursor:pointer; font-size:12px; padding:0 2px" title="Dupliceren">⧉</button>
+        <button onclick="deleteAudio('${f}')" style="background:none; border:none; color:#885555; cursor:pointer; font-size:12px; padding:0 2px" title="Verwijderen">×</button>
+      </div>
+    </div>`).join('');
+
+  AUDIO_SELECT_IDS.forEach(id => {
+    const el  = document.getElementById(id);
+    const cur = el.value;
+    while (el.options.length > 0) el.remove(0);
+    // blank option
+    const blank = document.createElement('option');
+    blank.value = ''; blank.textContent = '— kies bestand —';
+    el.appendChild(blank);
+    // file options
+    allAudioFiles.forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f; opt.textContent = f;
+      if (f === cur) opt.selected = true;
+      el.appendChild(opt);
+    });
+    // "Toevoegen…" option
+    const addOpt = document.createElement('option');
+    addOpt.value = '__add__'; addOpt.textContent = '+ Toevoegen…';
+    el.appendChild(addOpt);
+  });
+}
+
+async function uploadAudio(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('audio', file);
+  const res = await fetch('/api/audio/upload', { method: 'POST', body: form });
+  input.value = '';
+  if (res.ok) {
+    const data = await res.json();
+    showBiasFeedback('Geüpload: ' + data.filename, true);
+    await loadAudio();
+  } else {
+    showBiasFeedback('Upload mislukt.', false);
+  }
+}
+
+async function duplicateAudio(filename) {
+  const res = await fetch('/api/audio/duplicate/' + encodeURIComponent(filename), { method: 'POST' });
+  if (res.ok) {
+    const data = await res.json();
+    showBiasFeedback('Gedupliceerd: ' + data.filename, true);
+    await loadAudio();
+  } else {
+    showBiasFeedback('Dupliceren mislukt.', false);
+  }
+}
+
+async function deleteAudio(filename) {
+  const res = await fetch('/api/audio/' + encodeURIComponent(filename), { method: 'DELETE' });
+  if (res.ok) {
+    showBiasFeedback('Verwijderd: ' + filename, true);
+    await loadAudio();
+  } else {
+    showBiasFeedback('Verwijderen mislukt.', false);
+  }
+}
+
+async function loadBiasConfig() {
+  const res  = await fetch('/api/bias/config');
+  const data = await res.json();
+  document.getElementById('bias-start-select').value          = data.start_audio          ?? '';
+  document.getElementById('bias-middle-correct-select').value  = data.middle_correct_audio ?? '';
+  document.getElementById('bias-wrong-select').value           = data.wrong_audio          ?? '';
+  document.getElementById('bias-second-wrong-select').value    = data.second_wrong_audio   ?? '';
+  document.getElementById('bias-final-select').value           = data.final_audio          ?? '';
+  document.getElementById('bias-sensor-min').value             = data.sensor_min           ?? 0;
+  document.getElementById('bias-sensor-max').value             = data.sensor_max           ?? 1023;
+}
+
+async function saveBiasConfig() {
+  const res = await fetch('/api/bias/config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      start_audio:          document.getElementById('bias-start-select').value,
+      middle_correct_audio: document.getElementById('bias-middle-correct-select').value,
+      wrong_audio:          document.getElementById('bias-wrong-select').value,
+      second_wrong_audio:   document.getElementById('bias-second-wrong-select').value,
+      final_audio:          document.getElementById('bias-final-select').value,
+      sensor_min:           document.getElementById('bias-sensor-min').value,
+      sensor_max:           document.getElementById('bias-sensor-max').value,
+    }),
+  });
+  showFeedback('bias-config-feedback', res.ok ? 'Opgeslagen.' : 'Opslaan mislukt.', res.ok);
+}
+
+async function loadBiasStories() {
+  const res    = await fetch('/api/bias/stories');
+  const stories = await res.json();
+  const $cards = document.getElementById('bias-story-cards');
+  $cards.innerHTML = '';
+  if (stories.length === 0) {
+    $cards.innerHTML = '<p class="empty">Nog geen verhalen toegevoegd.</p>'; return;
+  }
+  stories.forEach(s => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.cursor = 'default';
+
+    const body = document.createElement('div');
+    body.className = 'card-body';
+
+    const top = document.createElement('div');
+    top.className = 'card-top';
+
+    const txt = document.createElement('div');
+    txt.className = 'card-text';
+    txt.textContent = s.name;
+
+    const edit = document.createElement('button');
+    edit.className = 'btn-edit'; edit.innerHTML = '✎'; edit.title = 'Bewerken';
+    edit.onclick = () => openBiasStoryForm(s);
+
+    const dup = document.createElement('button');
+    dup.className = 'btn-edit'; dup.innerHTML = '⧉'; dup.title = 'Dupliceren';
+    dup.onclick = () => duplicateBiasStory(s.id);
+
+    const del = document.createElement('button');
+    del.className = 'btn-delete'; del.textContent = '×'; del.title = 'Verwijder';
+    del.onclick = () => deleteBiasStory(s.id);
+
+    top.append(txt, edit, dup, del);
+
+    const chips = document.createElement('div');
+    chips.className = 'story-card-audios';
+    const storyChip = document.createElement('span');
+    storyChip.className = 'audio-chip story';
+    storyChip.textContent = s.story_audio;
+    chips.appendChild(storyChip);
+    const side = document.createElement('span');
+    side.className = 'audio-chip side';
+    side.textContent = s.correct_button === 'left' ? '← Links' : 'Rechts →';
+    chips.appendChild(side);
+
+    body.append(top, chips);
+    card.appendChild(body);
+    $cards.appendChild(card);
+  });
+}
+
+function openBiasStoryForm(s = null) {
+  biasStoryEditId = s ? s.id : null;
+  const form = document.getElementById('bias-story-form');
+  form.classList.add('open');
+  document.getElementById('bsf-submit').textContent = s ? 'Opslaan' : 'Toevoegen';
+  document.getElementById('bsf-name').value  = s ? s.name        : '';
+  document.getElementById('bsf-story').value = s ? s.story_audio : '';
+  setBiasSide(s ? s.correct_button : 'left');
+  form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeBiasStoryForm() {
+  biasStoryEditId = null;
+  document.getElementById('bias-story-form').classList.remove('open');
+  document.getElementById('bias-story-feedback').textContent = '';
+}
+
+function setBiasSide(side) {
+  biasSide = side;
+  document.getElementById('bsf-left').classList.toggle('active',  side === 'left');
+  document.getElementById('bsf-right').classList.toggle('active', side === 'right');
+}
+
+async function submitBiasStory() {
+  const body = {
+    name:           document.getElementById('bsf-name').value.trim(),
+    story_audio:    document.getElementById('bsf-story').value,
+    correct_button: biasSide,
+  };
+  if (!body.name || !body.story_audio) {
+    showBiasStoryFeedback('Vul alle velden in.', false); return;
+  }
+  const url    = biasStoryEditId ? '/api/bias/stories/' + biasStoryEditId : '/api/bias/stories';
+  const method = biasStoryEditId ? 'PUT' : 'POST';
+  const res    = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (res.ok) {
+    closeBiasStoryForm();
+    loadBiasStories();
+  } else {
+    showBiasStoryFeedback('Opslaan mislukt.', false);
+  }
+}
+
+async function duplicateBiasStory(id) {
+  const res = await fetch('/api/bias/stories/' + id + '/duplicate', { method: 'POST' });
+  if (res.ok) loadBiasStories();
+  else showBiasFeedback('Dupliceren mislukt.', false);
+}
+
+async function deleteBiasStory(id) {
+  const res = await fetch('/api/bias/stories/' + id, { method: 'DELETE' });
+  if (res.ok) loadBiasStories();
+  else showBiasFeedback('Verwijderen mislukt.', false);
+}
+
+function showBiasFeedback(msg, ok)      { showFeedback('bias-feedback',       msg, ok); }
+function showBiasStoryFeedback(msg, ok) { showFeedback('bias-story-feedback', msg, ok); }
+
+// ── I/O monitor ───────────────────────────────────────────────────────────────
+let ioLocal = { mode: 'input', encoder_at: 0, encoder_steps: 0, sensor_value: null, sensor_in_range: false, btn_left_at: 0, btn_right_at: 0, pump_at: 0, pump_high_at: 0, pump_low_at: 0, pump_cheat_at: 0 };
+
+function renderIO(patch) {
+  Object.assign(ioLocal, patch);
+  const io = ioLocal;
+  const now = Date.now();
+  const FLASH_MS = 2500;
+
+  document.getElementById('io-mode-input').classList.toggle('active', io.mode === 'input');
+  document.getElementById('io-mode-test').classList.toggle('active',  io.mode === 'test');
+
+  // Encoder knob animation
+  const encoderEl = document.getElementById('io-encoder');
+  const knobG     = document.getElementById('io-knob-g');
+  const knobLabel = document.getElementById('io-knob-label');
+  const knobActive = now - io.encoder_at < FLASH_MS;
+  encoderEl.classList.toggle('active-blue', knobActive);
+  if ('encoder_steps' in patch && io.encoder_steps !== 0) {
+    const dir = io.encoder_steps > 0 ? 1 : -1;
+    const speed = Math.min(Math.abs(io.encoder_steps), 8);
+    const cur = parseFloat(knobG.dataset.angle || '0');
+    const next = cur + dir * speed * 30;
+    knobG.dataset.angle = next;
+    knobG.style.transform = `rotate(${next}deg)`;
+    knobG.style.transformOrigin = '14px 14px';
+    knobLabel.textContent = dir > 0 ? 'RECHTS ↻' : '↺ LINKS';
+  } else if (!knobActive) {
+    knobLabel.textContent = 'DRAAISCHIJF';
+  }
+
+  const sensorEl = document.getElementById('io-sensor');
+  const hasValue = io.sensor_value !== null;
+  sensorEl.textContent = hasValue ? `SENSOR ${io.sensor_value}` : 'SENSOR —';
+  sensorEl.className   = 'io-indicator' + (io.sensor_in_range ? ' active' : (hasValue ? ' active-blue' : ''));
+
+  document.getElementById('io-btn-left').classList.toggle('active-blue',  now - io.btn_left_at  < FLASH_MS);
+  document.getElementById('io-btn-right').classList.toggle('active-blue', now - io.btn_right_at < FLASH_MS);
+  document.getElementById('io-pump').classList.toggle('active-pump',      now - io.pump_at      < FLASH_MS);
+
+  document.getElementById('io-pump-high').classList.toggle('active-blue',  now - io.pump_high_at  < FLASH_MS);
+  document.getElementById('io-pump-low').classList.toggle('active-blue',   now - io.pump_low_at   < FLASH_MS);
+  document.getElementById('io-pump-cheat').classList.toggle('active-pump', now - io.pump_cheat_at < FLASH_MS);
+}
+
+// Instant updates via BroadcastChannel (same browser)
+const ioBroadcast = new BroadcastChannel('oltc-io');
+ioBroadcast.onmessage = e => renderIO(e.data);
+
+// Fallback poll: sync state on load + keep in sync if main page isn't open
+async function pollIO() {
+  try { renderIO(await fetch('/api/io/state').then(r => r.json())); } catch { /* ignore */ }
+}
+const _pollIOInterval = setInterval(pollIO, 5000);
+pollIO();
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearInterval(_pollProgressInterval);
+    clearInterval(_pollBiasProgressInterval);
+    clearInterval(_pollIOInterval);
+  }
+});
+
+// ── Pump admin ────────────────────────────────────────────────────────────────
+let pumpWordIsCorrect = true;
+
+function setPumpWordType(correct) {
+  pumpWordIsCorrect = correct;
+  document.getElementById('pump-correct-btn').classList.toggle('active',  correct);
+  document.getElementById('pump-wrong-btn').classList.toggle('active', !correct);
+}
+
+async function loadPumpConfig() {
+  const data = await fetch('/api/pump/config').then(r => r.json());
+  document.getElementById('pump-required').value      = data.required;
+  document.getElementById('pump-word-duration').value = data.word_duration;
+}
+
+async function savePumpConfig() {
+  const res = await fetch('/api/pump/config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      required:      parseInt(document.getElementById('pump-required').value),
+      word_duration: parseInt(document.getElementById('pump-word-duration').value),
+    }),
+  });
+  showFeedback('pump-config-feedback', res.ok ? 'Opgeslagen.' : 'Opslaan mislukt.', res.ok);
+}
+
+async function loadPumpWords() {
+  const words = await fetch('/api/pump/words').then(r => r.json());
+  const list  = document.getElementById('pump-word-list');
+  list.innerHTML = '';
+  if (words.length === 0) {
+    list.innerHTML = '<p class="empty">Nog geen woorden toegevoegd.</p>'; return;
+  }
+  words.forEach(w => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; align-items:center; gap:8px; background:#0a1418; border:1px solid #1a2a30; border-radius:3px; padding:5px 10px; font-size:11px;';
+    const badge = document.createElement('span');
+    badge.style.cssText = 'font-size:9px; letter-spacing:1px; padding:1px 6px; border-radius:2px; flex-shrink:0;';
+    badge.style.color        = w.is_correct ? 'var(--green)' : 'var(--red)';
+    badge.style.borderColor  = w.is_correct ? 'var(--green)' : 'var(--red)';
+    badge.style.border       = '1px solid';
+    badge.textContent        = w.is_correct ? 'CORRECT' : 'FOUT';
+    const txt = document.createElement('span');
+    txt.style.cssText = 'flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#8aa0a8;';
+    txt.textContent = w.word;
+    const del = document.createElement('button');
+    del.style.cssText = 'background:none; border:none; color:#885555; cursor:pointer; font-size:14px; padding:0 2px; flex-shrink:0;';
+    del.textContent = '×'; del.title = 'Verwijderen';
+    del.onclick = () => deletePumpWord(w.id);
+    row.append(badge, txt, del);
+    list.appendChild(row);
+  });
+}
+
+async function addPumpWord() {
+  const word = document.getElementById('pump-word-input').value.trim();
+  if (!word) return;
+  const res = await fetch('/api/pump/words', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ word, is_correct: pumpWordIsCorrect }),
+  });
+  if (res.ok) {
+    document.getElementById('pump-word-input').value = '';
+    showFeedback('pump-word-feedback', 'Woord toegevoegd.', true, 2000);
+    loadPumpWords();
+  } else {
+    showFeedback('pump-word-feedback', 'Toevoegen mislukt.', false);
+  }
+}
+
+async function deletePumpWord(id) {
+  const res = await fetch('/api/pump/words/' + id, { method: 'DELETE' });
+  if (res.ok) loadPumpWords();
+}
+
+// ── Collapsible sections ───────────────────────────────────────────────────────
+function toggleSection(id) {
+  const body    = document.getElementById('body-' + id);
+  const chevron = document.getElementById('chevron-' + id);
+  const isOpen  = body.style.display === 'block';
+  body.style.display = isOpen ? 'none' : 'block';
+  chevron.classList.toggle('open', !isOpen);
+  localStorage.setItem('admin_section_' + id, isOpen ? '0' : '1');
+}
+
+function toggleSubSection(id) {
+  const body    = document.getElementById('subbody-' + id);
+  const chevron = document.getElementById('subchevron-' + id);
+  const isOpen  = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  chevron.classList.toggle('open', !isOpen);
+  localStorage.setItem('admin_subsection_' + id, isOpen ? '0' : '1');
+}
+
+// Restore section states from localStorage
+['sessies', 'bias', 'pump', 'video', 'quiz'].forEach(id => {
+  if (localStorage.getItem('admin_section_' + id) === '1') {
+    document.getElementById('body-' + id).style.display = 'block';
+    document.getElementById('chevron-' + id).classList.add('open');
+  }
+});
+['audio', 'bias-cijfers', 'verhalen', 'pump-woorden'].forEach(id => {
+  if (localStorage.getItem('admin_subsection_' + id) === '1') {
+    document.getElementById('subbody-' + id).classList.add('open');
+    document.getElementById('subchevron-' + id).classList.add('open');
+  }
+});
+
+// ── Module participant codes ───────────────────────────────────────────────────
+
+async function loadModuleCounts() {
+  const { sessions, currentQrSessionId } = await fetch('/api/modules/counts').then(r => r.json()).catch(() => ({ sessions: [], currentQrSessionId: null }));
+  const tbody = document.getElementById('sessions-tbody');
+  const cell = (sid, code, done, m) =>
+    `<td style="padding:4px 8px">
+      <span style="color:${done ? 'var(--dim)' : 'var(--green)'}">${code}</span>
+      <input type="checkbox" ${done ? 'checked' : ''} title="Module ${m} handmatig markeren"
+        onchange="toggleModuleDone(${sid},${m},this.checked)"
+        style="margin-left:6px;cursor:pointer;accent-color:var(--accent)">
+    </td>`;
+  tbody.innerHTML = sessions.length === 0
+    ? '<tr><td colspan="4" style="opacity:.4;padding:4px 8px">Geen actieve sessies</td></tr>'
+    : sessions.map(s => `<tr>
+        <td style="padding:4px 8px;opacity:.5">${s.id}${s.id === currentQrSessionId ? ' <span style="color:var(--accent);font-size:10px;letter-spacing:1px">QR</span>' : ''}</td>
+        ${cell(s.id, s.c1, s.m1_done, 1)}
+        ${cell(s.id, s.c2, s.m2_done, 2)}
+        ${cell(s.id, s.c3, s.m3_done, 3)}
+      </tr>`).join('');
+}
+
+// ── Digit audio (0–9 for pump module code readout) ────────────────────────────
+
+async function loadDigitAudio() {
+  const settings = await fetch('/api/settings').then(r => r.json()).catch(() => ({}));
+  const list = document.getElementById('digit-audio-list');
+  list.innerHTML = '';
+  for (let d = 0; d <= 9; d++) {
+    const file = settings[`digit_${d}_audio`] || '';
+    const row = document.createElement('div');
+    row.className = 'digit-audio-row';
+    row.innerHTML = `
+      <span class="digit-label">${d}</span>
+      <span class="digit-file" id="digit-file-${d}">${file || '—'}</span>
+      <label class="btn-upload" style="font-size:9px; padding:3px 10px">
+        Upload
+        <input type="file" accept=".mp3,.wav,.ogg,.m4a" style="display:none" onchange="uploadDigitAudio(this, ${d})">
+      </label>
+    `;
+    list.appendChild(row);
+  }
+}
+
+async function uploadDigitAudio(input, digit) {
+  const file = input.files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('audio', file);
+  const res = await fetch('/api/audio/upload', { method: 'POST', body: form });
+  input.value = '';
+  if (!res.ok) return;
+  const { filename } = await res.json();
+  await fetch(`/api/settings/digit_${digit}_audio`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: filename })
+  });
+  document.getElementById(`digit-file-${digit}`).textContent = filename;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadSentences();
+loadExamUrl();
+loadDialSensitivity();
+loadQuizSensitivity();
+loadVideos();
+loadAudio().then(() => { loadBiasConfig(); setupAudioSelectListeners(); });
+loadBiasStories();
+loadPumpConfig();
+loadPumpWords();
+async function toggleModuleDone(sid, mid, done) {
+  await fetch(`/api/sessions/${sid}/modules/${mid}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ done: done ? 1 : 0 })
+  }).catch(() => {});
+  loadModuleCounts();
+}
+
+loadModuleCounts();
+setInterval(loadModuleCounts, 3000);
+loadDigitAudio();
+</script>
+</body>
+</html>
